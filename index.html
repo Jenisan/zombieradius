@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Zombie Radius</title>
+<meta name="theme-color" content="#0b0f0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Zombie Radius">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{
+  --bg:#0b0f0c; --panel:rgba(14,19,15,.94); --line:rgba(155,229,100,.22);
+  --rot:#9be564; --rot-dim:#5d8a3c; --human:#5ad1ff; --warn:#ffb547; --blood:#ff4d4d;
+  --text:#e8efe6; --dim:#8a9a88;
+  --f-head:'Oswald',system-ui,sans-serif; --f-body:'Inter',system-ui,sans-serif;
+  --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--f-body);
+  -webkit-user-select:none;user-select:none;overscroll-behavior:none}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;height:100dvh}
+[hidden]{display:none!important}
+
+/* ---------- intro ---------- */
+#intro{padding:calc(var(--sat) + 20px) 22px calc(var(--sab) + 16px);justify-content:space-between;
+  background:radial-gradient(ellipse at 50% 30%,rgba(155,229,100,.12),transparent 60%),var(--bg)}
+.logo{font-family:var(--f-head);font-weight:700;font-size:clamp(40px,12vw,64px);line-height:.9;letter-spacing:.02em;margin:0;text-transform:uppercase}
+.logo span{color:var(--rot);display:block}
+.tag{color:var(--dim);margin:10px 0 0;font-size:15px;line-height:1.4}
+.rules{list-style:none;padding:0;margin:0;display:grid;gap:9px;font-size:14px;line-height:1.35}
+.rules li{display:flex;gap:10px;align-items:flex-start}
+.rules b{color:var(--rot)}
+.dot{flex:0 0 10px;height:10px;border-radius:50%;margin-top:4px}
+.form{display:grid;gap:10px}
+.field label{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
+.row{display:flex;gap:8px}
+input,select{font:inherit;font-size:16px;color:var(--text);background:#141b15;border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%}
+input:focus,select:focus{outline:2px solid var(--rot-dim)}
+.chk{display:flex;gap:10px;font-size:13px;color:var(--dim);line-height:1.35;align-items:flex-start}
+.chk input{width:20px;height:20px;flex:0 0 20px;margin:0;accent-color:var(--rot)}
+.btn{background:var(--rot);color:#0b0f0c;font-family:var(--f-head);font-weight:700;font-size:20px;letter-spacing:.06em;
+  text-transform:uppercase;padding:14px;border-radius:12px;width:100%}
+.btn:disabled{opacity:.4}
+.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line);font-size:15px;padding:11px}
+.btn.small{font-size:14px;padding:10px 12px;width:auto}
+.err{color:var(--blood);font-size:13px;min-height:16px}
+
+/* ---------- game ---------- */
+#map{position:absolute;inset:0;background:#0b0f0c}
+.leaflet-control-attribution{background:rgba(0,0,0,.45)!important;color:#777!important;font-size:9px!important}
+.leaflet-control-attribution a{color:#999!important}
+#top{position:absolute;left:0;right:0;top:0;padding:calc(var(--sat) + 10px) 10px 0;display:flex;gap:8px;align-items:flex-start;z-index:500;pointer-events:none}
+#top > *{pointer-events:auto}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 11px}
+#status{flex:1;min-width:0}
+#status .st{font-family:var(--f-head);font-weight:700;font-size:20px;letter-spacing:.05em;text-transform:uppercase;line-height:1}
+#status .sub{font-size:12px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:5px;background:#243024;border-radius:3px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--warn);border-radius:3px;transition:width .4s}
+#menuBtn{width:46px;height:46px;display:grid;place-items:center;padding:0}
+#menuBtn svg{width:22px;height:22px}
+#banners{position:absolute;left:10px;right:10px;top:calc(var(--sat) + 74px);z-index:510;display:grid;gap:6px;pointer-events:none}
+.banner{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:10px;padding:8px 11px;font-size:13px;line-height:1.3}
+.banner.red{border-left-color:var(--blood)}
+.banner.green{border-left-color:var(--rot)}
+.banner.blue{border-left-color:var(--human)}
+#alarm{position:absolute;inset:0;z-index:600;pointer-events:none;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at center,rgba(255,77,77,.15),rgba(255,77,77,.55));animation:pulse .6s ease-in-out infinite alternate}
+#alarm div{font-family:var(--f-head);font-size:34px;font-weight:700;text-transform:uppercase;text-align:center;padding:20px;text-shadow:0 2px 12px #000}
+@keyframes pulse{from{opacity:.65}to{opacity:1}}
+#recenter{position:absolute;right:12px;bottom:calc(var(--sab) + 150px);z-index:500;width:44px;height:44px;border-radius:50%;
+  display:grid;place-items:center;background:var(--panel);border:1px solid var(--line)}
+#recenter svg{width:20px;height:20px}
+#gps{position:absolute;left:12px;bottom:calc(var(--sab) + 158px);z-index:500;font-size:11px;padding:5px 9px;border-radius:20px}
+#bottom{position:absolute;left:0;right:0;bottom:0;z-index:500;padding:10px 10px calc(var(--sab) + 10px);
+  background:linear-gradient(transparent,rgba(11,15,12,.92) 28%)}
+#items{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 4px 7px;display:grid;justify-items:center;gap:3px;position:relative}
+.item svg{width:26px;height:26px}
+.item .nm{font-size:11px;font-weight:600;letter-spacing:.03em}
+.item .ct{position:absolute;top:4px;right:6px;font-family:var(--f-head);font-size:13px;color:var(--warn)}
+.item:disabled{opacity:.35}
+.item.active{border-color:var(--human)}
+#biteWrap{display:flex;gap:8px;align-items:stretch}
+#biteBtn{flex:1;position:relative;overflow:hidden;background:var(--rot);color:#0b0f0c;border-radius:16px;padding:16px 10px;
+  font-family:var(--f-head);font-weight:700;font-size:24px;letter-spacing:.08em;text-transform:uppercase;touch-action:none}
+#biteBtn small{display:block;font-family:var(--f-body);font-size:12px;letter-spacing:0;text-transform:none;font-weight:600;opacity:.75;margin-top:2px}
+#biteBtn:disabled{background:#26331f;color:var(--rot-dim)}
+#biteFill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(0,0,0,.28)}
+#copy{position:absolute;right:8px;bottom:calc(var(--sab) + 2px);z-index:501;font-size:9px;color:#5a6658;pointer-events:none}
+
+/* map markers */
+.mk{display:grid;place-items:center}
+.mk .b{width:16px;height:16px;border-radius:50%;border:2px solid #0b0f0c;box-shadow:0 0 0 2px currentColor,0 0 12px currentColor;background:currentColor}
+.mk .lbl{position:absolute;top:18px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;font-weight:700;
+  background:rgba(0,0,0,.65);padding:1px 5px;border-radius:5px;color:#fff}
+.mk.me .b{width:20px;height:20px;animation:mepulse 1.6s infinite}
+@keyframes mepulse{50%{box-shadow:0 0 0 2px currentColor,0 0 22px 6px currentColor}}
+.crate{width:22px;height:22px;border-radius:5px;border:2px solid #0b0f0c;background:var(--warn);box-shadow:0 0 0 2px var(--warn),0 0 10px rgba(255,181,71,.7);
+  display:grid;place-items:center;font-size:11px;font-weight:800;color:#0b0f0c}
+.crate.sp{background:#ffd447;box-shadow:0 0 0 2px #ffd447,0 0 14px #ffd447}
+.crate.cd{background:#555;box-shadow:0 0 0 2px #555;color:#ccc}
+.crate.ov{background:var(--rot-dim);box-shadow:0 0 0 2px var(--rot);color:#0b0f0c}
+
+/* sheets */
+#sheet{position:absolute;inset:0;z-index:700;background:rgba(0,0,0,.55);display:flex;align-items:flex-end}
+#sheetBody{width:100%;max-height:calc(100dvh - var(--sat) - 20px);background:#101611;border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  padding:16px 16px calc(var(--sab) + 16px);display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.sh-h{display:flex;justify-content:space-between;align-items:center}
+.sh-h h2{margin:0;font-family:var(--f-head);text-transform:uppercase;letter-spacing:.05em;font-size:22px}
+.sh-x{font-size:28px;line-height:1;padding:0 4px;color:var(--dim)}
+.sh-sec{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:7px}
+.sh-sec h3{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.sh-sec p{margin:0;font-size:13px;color:var(--dim);line-height:1.35}
+.menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lb{display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px}
+.lb ol{margin:4px 0 0;padding-left:18px;display:grid;gap:3px}
+.lb .n{color:var(--warn);font-family:var(--f-head)}
+.plist{display:grid;gap:6px}
+.prow{display:flex;align-items:center;gap:8px;font-size:14px}
+.prow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.how{font-size:13px;line-height:1.4;color:var(--text);display:grid;gap:6px;margin:0;padding-left:18px}
+#modal{position:absolute;inset:0;z-index:800;background:rgba(0,0,0,.75);display:grid;place-items:center;padding:24px}
+#modalBody{background:#101611;border:1px solid var(--line);border-radius:16px;padding:22px;text-align:center;max-width:360px;display:grid;gap:12px}
+#modalBody h2{margin:0;font-family:var(--f-head);font-size:30px;text-transform:uppercase;letter-spacing:.04em}
+#modalBody p{margin:0;color:var(--dim);line-height:1.45;font-size:15px}
+#toast{position:absolute;left:50%;bottom:calc(var(--sab) + 160px);transform:translateX(-50%);z-index:900;background:#f2f6ef;color:#0b0f0c;
+  padding:9px 14px;border-radius:10px;font-size:14px;font-weight:600;max-width:88vw;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.5);
+  transition:opacity .25s;opacity:0;pointer-events:none}
+#toast.on{opacity:1}
+#locScreen{padding:calc(var(--sat) + 40px) 24px calc(var(--sab) + 24px);justify-content:center;gap:16px;text-align:center;background:var(--bg)}
+#locScreen h2{font-family:var(--f-head);font-size:30px;text-transform:uppercase;margin:0}
+#locScreen p{color:var(--dim);line-height:1.45;margin:0}
+@media (max-height:640px){
+  .rules{gap:6px;font-size:13px} .tag{font-size:13px} .logo{font-size:40px}
+  input,select{padding:9px 11px} .btn{padding:11px}
+}
+</style>
+</head>
+<body>
+
+<!-- INTRO / SIGN UP -->
+<section class="screen" id="intro" hidden>
+  <div>
+    <h1 class="logo">Zombie<span>Radius</span></h1>
+    <p class="tag">A real-world outbreak. Your neighborhood is the map.</p>
+  </div>
+  <ul class="rules">
+    <li><i class="dot" style="background:var(--rot)"></i><span><b>Zombies</b> bite humans within 50 ft. Hold to bite — the human gets a warning.</span></li>
+    <li><i class="dot" style="background:var(--human)"></i><span><b style="color:var(--human)">Humans</b> survive with antidotes, vaccines, flares and masks. 3+ together can't be bitten.</span></li>
+    <li><i class="dot" style="background:var(--warn)"></i><span><b style="color:var(--warn)">Stockpiles</b> around town hold supplies. Go get them.</span></li>
+  </ul>
+  <div class="form">
+    <div class="field">
+      <label for="handle">Your handle (no real names)</label>
+      <div class="row"><input id="handle" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="btn ghost small" id="reroll" type="button">Random</button></div>
+    </div>
+    <div class="field">
+      <label for="byear">Birth year</label>
+      <select id="byear"></select>
+    </div>
+    <label class="chk"><input type="checkbox" id="agree"><span>I'll watch where I'm going, stay off private property and never chase anyone into traffic.</span></label>
+    <div class="err" id="joinErr"></div>
+    <button class="btn" id="joinBtn" disabled>Enter the outbreak</button>
+  </div>
+</section>
+
+<!-- LOCATION -->
+<section class="screen" id="locScreen" hidden>
+  <h2>Location needed</h2>
+  <p id="locMsg">Zombie Radius uses your location while the game is open. It's never shown exactly to anyone unless they're within 50 ft, and never while you're at home.</p>
+  <button class="btn" id="locBtn">Allow location</button>
+</section>
+
+<!-- GAME -->
+<section class="screen" id="game" hidden>
+  <div id="map"></div>
+  <div id="top">
+    <div class="chip" id="status">
+      <div class="st" id="stText">—</div>
+      <div class="sub" id="stSub"></div>
+      <div class="bar" title="Supplies"><i id="supBar" style="width:100%"></i></div>
+    </div>
+    <button class="chip" id="menuBtn" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+  <div id="banners"></div>
+  <div class="chip" id="gps">GPS —</div>
+  <button id="recenter" aria-label="Center on me">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+  </button>
+  <div id="bottom">
+    <div id="items">
+      <button class="item" data-item="antidote"><span class="ct" id="ct-antidote">0</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5ad1ff" stroke-width="2"><rect x="8" y="3" width="8" height="18" rx="3"/><path d="M8 10h8M12 13v4M10 15h4"/></svg><span class="nm">Antidote</span></button>
+      <button class="item" data-item="vaccine"><span class="ct" id="ct-vaccine">0</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#5ad1ff" stroke-width="2"><path d="M14 4l6 6M17 7l-9 9-3 1 1-3 9-9M4 20l3-3M10 8l2 2M8 10l2 2"/></svg><span class="nm">Vaccine</span></button>
+      <button class="item" data-item="flare"><span class="ct" id="ct-flare">0</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#ffb547" stroke-width="2"><path d="M12 3c2 3 4 4 4 8a4 4 0 0 1-8 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 0-7z"/><path d="M10 19h4v2h-4z"/></svg><span class="nm">Flare</span></button>
+      <button class="item" data-item="mask"><span class="ct" id="ct-mask">0</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#e8efe6" stroke-width="2"><path d="M3 9c3-2 15-2 18 0v3c0 5-5 8-9 8s-9-3-9-8z"/><path d="M8 13h2M14 13h2"/></svg><span class="nm">Mask</span></button>
+    </div>
+    <div id="biteWrap" hidden>
+      <button id="biteBtn" disabled><div id="biteFill"></div><span id="biteLbl">Bite</span><small id="biteSub">No humans in range</small></button>
+    </div>
+  </div>
+  <div id="copy">© Jenisan, Inc.</div>
+  <div id="alarm" hidden><div id="alarmText"></div></div>
+  <div id="sheet" hidden><div id="sheetBody"></div></div>
+  <div id="modal" hidden><div id="modalBody"></div></div>
+  <div id="toast"></div>
+</section>
+
+<script>
+(() => {
+'use strict';
+const SB = 'https://cidcepbbigusappypdqs.supabase.co';
+const KEY = 'sb_publishable_FGF_IxpGZr1JV5Mdt8ENdA_jGAb9Lhj';
+const BITE_M = 15.24, EXPOSED_M = 45.72, HB_MS = 3000;
+const $ = id => document.getElementById(id);
+
+/* ---------- storage ---------- */
+const store = {
+  get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+let auth = store.get('zr_auth');
+
+async function rpc(fn, args){
+  const r = await fetch(`${SB}/rest/v1/rpc/${fn}`, {
+    method:'POST', headers:{ apikey:KEY, 'Content-Type':'application/json' }, body: JSON.stringify(args)
+  });
+  let j = null; try { j = await r.json(); } catch(e){}
+  if (!r.ok) { const m = (j && j.message) || ('HTTP ' + r.status); const e = new Error(m); e.status = r.status; throw e; }
+  return j;
+}
+const A = extra => Object.assign({ p_id: auth.id, p_secret: auth.secret }, extra || {});
+
+/* ---------- intro ---------- */
+const ADJ = ['Grim','Rotten','Feral','Silent','Rusty','Pale','Hollow','Swift','Lucky','Ashen','Mossy','Shady','Static','Restless','Crooked','Bitter'];
+const NOUN = ['Otter','Crow','Medic','Ghoul','Scout','Wolf','Moth','Ranger','Badger','Shade','Lynx','Raven','Drifter','Hound','Viper','Fox'];
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const randHandle = () => pick(ADJ) + pick(NOUN) + Math.floor(10 + Math.random()*89);
+
+function showIntro(){
+  $('intro').hidden = false;
+  $('handle').value = randHandle();
+  const sel = $('byear'); const y = new Date().getFullYear();
+  sel.innerHTML = '<option value="">Select…</option>';
+  for (let i = y - 10; i >= y - 90; i--) sel.insertAdjacentHTML('beforeend', `<option>${i}</option>`);
+  const check = () => { $('joinBtn').disabled = !($('agree').checked && sel.value && $('handle').value.trim().length >= 3); };
+  ['input','change'].forEach(ev => { sel.addEventListener(ev, check); $('agree').addEventListener(ev, check); $('handle').addEventListener(ev, check); });
+  $('reroll').onclick = () => { $('handle').value = randHandle(); check(); };
+  $('joinBtn').onclick = async () => {
+    const h = $('handle').value.trim(), by = parseInt(sel.value, 10);
+    $('joinErr').textContent = '';
+    if (!/^[A-Za-z0-9_]{3,16}$/.test(h)) { $('joinErr').textContent = 'Handles are 3–16 letters, numbers or _.'; return; }
+    $('joinBtn').disabled = true;
+    try {
+      const r = await rpc('zr_join', { p_handle: h, p_birth_year: by });
+      if (r.error) {
+        $('joinErr').textContent = { too_young:'You must be 13 or older to play.', handle_taken:'That handle is taken. Try another.', bad_handle:'Handles are 3–16 letters, numbers or _.' }[r.error] || r.error;
+        $('joinBtn').disabled = false; return;
+      }
+      auth = { id: r.id, secret: r.secret, handle: h };
+      store.set('zr_auth', auth);
+      $('intro').hidden = true;
+      startLocation();
+    } catch (e) { $('joinErr').textContent = 'Could not connect. Check your signal and try again.'; $('joinBtn').disabled = false; }
+  };
+}
+
+/* ---------- location ---------- */
+let fix = null, watchId = null;
+function startLocation(){
+  if (!('geolocation' in navigator)) { $('locScreen').hidden = false; $('locMsg').textContent = "This browser can't share location, so the game can't run here."; $('locBtn').hidden = true; return; }
+  const begin = () => {
+    $('locBtn').disabled = true;
+    watchId = navigator.geolocation.watchPosition(p => {
+      fix = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() };
+      if (!started) { $('locScreen').hidden = true; startGame(); }
+    }, err => {
+      $('locBtn').disabled = false;
+      if (!started) {
+        $('locScreen').hidden = false;
+        $('locMsg').textContent = err.code === 1
+          ? 'Location is blocked. Turn it on for this site in your browser settings, then tap Try again.'
+          : 'Still looking for a GPS signal. Step outside or near a window, then tap Try again.';
+        $('locBtn').textContent = 'Try again';
+      }
+    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  };
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name:'geolocation' }).then(s => { if (s.state === 'granted') begin(); else showLoc(begin); }).catch(() => showLoc(begin));
+  } else showLoc(begin);
+}
+function showLoc(begin){ $('locScreen').hidden = false; $('locBtn').onclick = () => { if (watchId !== null) navigator.geolocation.clearWatch(watchId); begin(); }; }
+
+/* ---------- game ---------- */
+let started = false, map, layer, meMarker, meRing, meRing2, follow = true, data = null, since = null;
+const seenEvents = new Set();
+let prevState = null, prevIncubating = null, hbBusy = false, hbTimer = null, wakeLock = null;
+
+function startGame(){
+  started = true;
+  $('game').hidden = false;
+  map = L.map('map', { zoomControl:false, attributionControl:true, zoomSnap:0.5 }).setView([fix.lat, fix.lng], 18);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 20, subdomains:'abcd',
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/">CARTO</a>'
+  }).addTo(map);
+  layer = L.layerGroup().addTo(map);
+  meRing2 = L.circle([fix.lat, fix.lng], { radius: EXPOSED_M, color:'#ffb547', weight:1.5, dashArray:'6 6', fill:false, opacity:0 }).addTo(map);
+  meRing = L.circle([fix.lat, fix.lng], { radius: BITE_M, color:'#5ad1ff', weight:2, fillOpacity:.08 }).addTo(map);
+  meMarker = L.marker([fix.lat, fix.lng], { icon: mkIcon('me', '#5ad1ff', ''), zIndexOffset: 1000, interactive:false }).addTo(map);
+  map.on('dragstart', () => { follow = false; });
+  $('recenter').onclick = () => { follow = true; if (fix) map.setView([fix.lat, fix.lng], Math.max(map.getZoom(), 17.5)); };
+  $('menuBtn').onclick = openMenu;
+  document.querySelectorAll('.item').forEach(b => b.onclick = () => useItem(b.dataset.item));
+  setupBite();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { heartbeat(); requestWake(); } });
+  requestWake();
+  heartbeat();
+  hbTimer = setInterval(heartbeat, HB_MS);
+  setInterval(tickLocal, 1000);
+  if (!store.get('zr_seen_howto')) { store.set('zr_seen_howto', 1); setTimeout(showHowTo, 600); }
+}
+
+async function requestWake(){
+  try { if ('wakeLock' in navigator && !document.hidden) wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
+}
+
+function mkIcon(kind, color, label){
+  return L.divIcon({ className:'', iconSize:[24,24], iconAnchor:[12,12],
+    html:`<div class="mk ${kind}" style="color:${color}"><div class="b"></div>${label ? `<div class="lbl">${esc(label)}</div>` : ''}</div>` });
+}
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); };
+
+async function heartbeat(){
+  if (hbBusy || !fix || document.hidden) return;
+  hbBusy = true;
+  try {
+    const fresh = Date.now() - fix.t < 15000;
+    const r = await rpc('zr_heartbeat', A({
+      p_lat: fresh ? fix.lat : null, p_lng: fresh ? fix.lng : null, p_acc: fresh ? fix.acc : null,
+      p_tz: new Date().getTimezoneOffset(), p_since: since
+    }));
+    data = r; data._at = Date.now();
+    since = r.now;
+    render();
+    handleEvents(r.events || []);
+  } catch (e) {
+    if (/bad_auth/.test(e.message)) { store.del('zr_auth'); location.reload(); return; }
+    banner('net', 'Connection lost — retrying…', 'red');
+  } finally { hbBusy = false; }
+}
+
+/* titles */
+function title(p){
+  if (p.state === 'zombie') return p.patient_zero ? 'Patient Zero' : p.infections >= 10 ? 'Alpha' : p.infections >= 3 ? 'Stalker' : 'Shambler';
+  return p.cures >= 10 ? 'Medic' : p.cures >= 3 ? 'Field Medic' : 'Survivor';
+}
+
+function render(){
+  const me = data.me;
+  const zombie = me.state === 'zombie';
+  const infected = !zombie && me.incubating != null;
+  document.body.dataset.state = zombie ? 'zombie' : infected ? 'infected' : 'human';
+
+  // status
+  const col = zombie ? 'var(--rot)' : infected ? 'var(--blood)' : 'var(--human)';
+  $('stText').style.color = col;
+  $('stText').textContent = zombie ? 'Zombie' : infected ? 'Infected ' + fmt(localIncubating()) : 'Human';
+  const days = data.season ? Math.max(0, Math.ceil((new Date(data.season.ends_at) - Date.now()) / 86400000)) : 0;
+  $('stSub').textContent = `${me.handle} · ${title(me)} · ${me.points} pts · ${data.season ? data.season.name + ', ' + days + 'd left' : ''}`;
+  $('supBar').style.width = me.supplies + '%';
+  $('supBar').parentElement.style.visibility = zombie ? 'hidden' : 'visible';
+
+  // gps chip
+  const acc = fix ? Math.round(fix.acc) : null;
+  $('gps').textContent = acc == null ? 'GPS —' : acc > 35 ? `GPS ±${acc} m · weak` : `GPS ±${acc} m`;
+  $('gps').style.color = acc > 35 ? 'var(--warn)' : 'var(--dim)';
+
+  // me on map
+  if (fix) {
+    const ll = [fix.lat, fix.lng];
+    meMarker.setLatLng(ll); meRing.setLatLng(ll); meRing2.setLatLng(ll);
+    if (follow) map.panTo(ll, { animate:true });
+  }
+  const c = zombie ? '#9be564' : infected ? '#ff4d4d' : '#5ad1ff';
+  meMarker.setIcon(mkIcon('me', c, ''));
+  meRing.setStyle({ color: c, fillColor: c });
+  meRing2.setStyle({ opacity: (!zombie && me.exposed > 0) ? .9 : 0 });
+
+  // others + caches
+  layer.clearLayers();
+  for (const cch of data.caches || []) {
+    const cls = cch.overrun ? 'ov' : cch.cooldown > 0 ? 'cd' : cch.sponsored ? 'sp' : '';
+    const m = L.marker([cch.lat, cch.lng], { icon: L.divIcon({ className:'', iconSize:[22,22], iconAnchor:[11,11],
+      html:`<div class="crate ${cls}">${cch.sponsored ? '★' : '+'}</div>` }) });
+    m.on('click', () => tapCache(cch));
+    layer.addLayer(m);
+  }
+  for (const o of data.others || []) {
+    const oc = o.state === 'zombie' ? '#9be564' : o.state === 'infected' ? '#ff4d4d' : '#5ad1ff';
+    if (o.exact) {
+      layer.addLayer(L.marker([o.lat, o.lng], { icon: mkIcon('', oc, o.handle), zIndexOffset: 500 }).on('click', () => tapPlayer(o)));
+    } else {
+      layer.addLayer(L.circle([o.lat, o.lng], { radius: 40, color: oc, weight: 1, fillColor: oc, fillOpacity: .14, opacity: .5 })
+        .on('click', () => toast(`${o.state === 'zombie' ? 'Zombie' : o.state === 'infected' ? 'Infected human' : 'Human'} somewhere in this zone (~${o.dist} m)`)));
+    }
+  }
+
+  // controls
+  $('items').hidden = zombie;
+  $('biteWrap').hidden = !zombie;
+  for (const k of ['antidote','vaccine','flare','mask']) {
+    $('ct-' + k).textContent = me[k + 's'];
+    const b = document.querySelector(`.item[data-item="${k}"]`);
+    b.disabled = me[k + 's'] < 1;
+    b.classList.toggle('active', (k === 'vaccine' && me.vaccinated > 0) || (k === 'mask' && me.masked > 0));
+  }
+  if (zombie && !biting) updateBiteBtn();
+
+  // persistent banners
+  banners();
+
+  // state transitions
+  if (prevState === 'human' && zombie) modal('You turned', 'The infection took hold. You\'re a zombie now. Hunt humans within 50 ft and hold Bite. A human with an antidote can still bring you back.', 'Hunt');
+  if (prevIncubating == null && infected && prevState) navigator.vibrate && navigator.vibrate([300,100,300]);
+  if (prevState === 'zombie' && !zombie) modal('You\'re human again', 'Someone cured you. Your points are safe and your supplies are full.', 'Survive');
+  prevState = me.state; prevIncubating = me.incubating;
+}
+
+function localIncubating(){
+  if (!data || data.me.incubating == null) return null;
+  return data.me.incubating - (Date.now() - data._at) / 1000;
+}
+function localLeft(key){ return data ? Math.max(0, data.me[key] - (Date.now() - data._at)/1000) : 0; }
+
+function tickLocal(){
+  if (!data) return;
+  const me = data.me;
+  if (me.state !== 'zombie' && me.incubating != null) $('stText').textContent = 'Infected ' + fmt(localIncubating());
+  banners();
+}
+
+const bannerState = {};
+function banner(key, text, cls){ bannerState[key] = { text, cls, t: Date.now() }; drawBanners(); }
+function banners(){
+  if (!data) return;
+  const me = data.me, z = me.state === 'zombie';
+  const set = (k, cond, text, cls) => { if (cond) bannerState[k] = { text, cls, persist:true }; else delete bannerState[k]; };
+  set('inc', !z && me.incubating != null, `You're infected. Use an antidote or get one from a friend within ${fmt(localIncubating())}.`, 'red');
+  set('exp', !z && localLeft('exposed') > 0, `Exposed for ${fmt(localLeft('exposed'))}: no items, and zombies can bite you from 150 ft.`, 'red');
+  set('vac', !z && localLeft('vaccinated') > 0, `Vaccinated: the next bite fails (${fmt(localLeft('vaccinated'))}).`, 'blue');
+  set('mask', !z && localLeft('masked') > 0, `Masked: hidden from zombie radar (${fmt(localLeft('masked'))}).`, 'blue');
+  set('stun', z && localLeft('stunned') > 0, `Stunned by a flare: can't bite for ${fmt(localLeft('stunned'))}.`, 'green');
+  set('shel', me.sheltered, me.minor && !me.home ? 'Night curfew (10pm–6am): you\'re sheltered and hidden.' : 'You\'re at home: sheltered and hidden from everyone.', 'blue');
+  set('sup', !z && me.supplies <= 0, 'Out of supplies: you can\'t use items until you reach a stockpile.', 'red');
+  set('gpsw', fix && fix.acc > 35, 'Weak GPS. Step outside for bites, cures and stockpiles to work.', '');
+  if (bannerState.net && Date.now() - bannerState.net.t > 6000) delete bannerState.net;
+  drawBanners();
+}
+function drawBanners(){
+  const keys = Object.keys(bannerState).slice(0, 3);
+  $('banners').innerHTML = keys.map(k => `<div class="banner ${bannerState[k].cls || ''}">${esc(bannerState[k].text)}</div>`).join('');
+}
+
+/* ---------- toasts / alarm / modal ---------- */
+let toastT;
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 3200); }
+let alarmT;
+function alarm(msg){ $('alarmText').textContent = msg; $('alarm').hidden = false; navigator.vibrate && navigator.vibrate([250,100,250,100,250]);
+  clearTimeout(alarmT); alarmT = setTimeout(() => { $('alarm').hidden = true; }, 4500); }
+function modal(h, p, btn){
+  $('modalBody').innerHTML = `<h2>${esc(h)}</h2><p>${esc(p)}</p><button class="btn" id="mOk">${esc(btn || 'OK')}</button>`;
+  $('modal').hidden = false; $('mOk').onclick = () => { $('modal').hidden = true; };
+}
+
+/* ---------- events ---------- */
+function handleEvents(evs){
+  for (const e of evs) {
+    if (seenEvents.has(e.id)) continue;
+    seenEvents.add(e.id);
+    const o = e.other || 'someone';
+    switch (e.kind) {
+      case 'bite_warning': if (!e.mine) alarm(`${o} is biting you! Run or flare!`); break;
+      case 'bitten': if (e.mine) toast(`You infected ${o}. +10`); else { $('alarm').hidden = true; modal('Bitten', `${o} bit you. You have 10 minutes to use an antidote before you turn.`, 'Find a cure'); } break;
+      case 'resisted': toast(e.mine ? `${o} was vaccinated. Bite failed.` : `Your vaccine stopped ${o}'s bite!`); if (!e.mine) $('alarm').hidden = true; break;
+      case 'cured': if (e.mine && e.other === data.me.handle) toast('You cured yourself.'); else if (e.mine) toast(`You cured ${o}. +10`); else toast(`${o} cured you.`); break;
+      case 'stunned': if (!e.mine) toast('A flare stunned you for 30 seconds.'); break;
+      case 'emerged': alarm(`${o} just came out of hiding nearby. They're exposed!`); break;
+      case 'returned': toast(`Back from hiding: exposed for ${Math.round(e.info.secs/60)} min${e.info.drain ? `, −${e.info.drain} supplies` : ''}.`); break;
+      case 'patient_zero': modal('Patient Zero', 'You\'re one of the first zombies in this area. Find humans, get within 50 ft and hold Bite. Every infection spreads your bloodline.', 'Start hunting'); break;
+      case 'bloodline': if (!e.mine) toast(`Bloodline +5: ${e.info && e.info.via} infected ${o}.`); break;
+      case 'lost_victim': if (!e.mine) toast(`${o} was cured.`); break;
+    }
+  }
+}
+
+/* ---------- items ---------- */
+const ERR = {
+  exposed:'You just came back from hiding. Items unlock when the timer ends.', no_supplies:'Out of supplies. Reach a stockpile first.',
+  none_left:'None left. Find more at stockpiles.', not_infected:'Nobody here needs an antidote.', too_far:'Get within 50 ft first.',
+  zombies_cant:'Zombies can\'t do that.', weak_gps:'GPS too weak. Step outside.', target_gps:'Their GPS is too weak right now.',
+  stunned:'You\'re stunned. Wait it out.', not_target:'That player can\'t be bitten.', sheltered:'They\'re sheltered.',
+  group:'They\'re in a group of 3+. Bites don\'t work.', cooldown:'You already raided this stockpile. Try again later.',
+  overrun:'Zombies have overrun this stockpile.', too_soon:'Keep holding.', expired:'Too slow. Try again.', no_bite:'Bite cancelled.',
+  not_zombie:'Only zombies can bite.', bad_cache:'That stockpile is gone.'
+};
+const errMsg = r => ERR[r.error] || r.error;
+
+async function useItem(item){
+  if (!data) return;
+  const me = data.me;
+  let target = null;
+  if (item === 'antidote') {
+    if (me.incubating == null) {
+      const c = (data.others || []).filter(o => o.exact && (o.state === 'infected' || o.state === 'zombie') && o.dist <= 18).sort((a,b) => a.dist - b.dist)[0];
+      if (!c) { toast('Get within 50 ft of an infected player or zombie to cure them.'); return; }
+      target = c.id;
+    }
+  }
+  try {
+    const r = await rpc('zr_use_item', A({ p_item: item, p_target: target }));
+    if (r.error) { toast(errMsg(r)); return; }
+    if (r.result === 'flared') toast(r.stunned ? `Flare! ${r.stunned} zombie${r.stunned > 1 ? 's' : ''} stunned for 30s.` : 'Flare lit. No zombies close enough.');
+    else if (r.result === 'vaccinated') toast('Vaccinated for 60 minutes. The next bite fails.');
+    else if (r.result === 'masked') toast('Masked for 5 minutes. Zombies can\'t see you on radar.');
+    heartbeat();
+  } catch(e) { toast('Network error.'); }
+}
+
+async function tapCache(c){
+  if (!data) return;
+  if (data.me.state === 'zombie') { toast(c.overrun ? 'Overrun. Humans can\'t loot here while zombies hold it.' : 'Stockpile. Gather 2+ zombies here to overrun it.'); return; }
+  if (c.overrun) { toast(ERR.overrun); return; }
+  if (c.cooldown > 0) { toast(`Raided. Restocks for you in ${Math.ceil(c.cooldown/60)} min.`); return; }
+  if (c.dist > 35) { toast(`${c.sponsored ? esc(c.name) + ' stockpile' : 'Stockpile'}: ${Math.round(c.dist)} m away. Get within 100 ft.`); return; }
+  try {
+    const r = await rpc('zr_loot', A({ p_cache: c.id }));
+    if (r.error) { toast(errMsg(r)); return; }
+    toast(`Found ${r.items.join(' + ')} and +30 supplies.`);
+    heartbeat();
+  } catch(e) { toast('Network error.'); }
+}
+
+function tapPlayer(o){
+  const st = o.state === 'zombie' ? 'Zombie' : o.state === 'infected' ? 'Infected' : 'Human';
+  openSheet(o.handle, `
+    <div class="sh-sec"><p><b style="color:var(--text)">${st}</b> · ${esc(title(o))} · ${o.dist} m away<br>
+      ${o.state === 'zombie' ? o.infections + ' infections' : o.cures + ' cures'}</p></div>
+    <div class="menu-grid"><button class="btn ghost" id="pBlock">Block</button><button class="btn ghost" id="pReport">Report</button></div>`);
+  $('pBlock').onclick = () => blockPlayer(o, null);
+  $('pReport').onclick = () => { const why = prompt('What happened? (optional)') ; blockPlayer(o, why || 'reported'); };
+}
+async function blockPlayer(o, report){
+  try { await rpc('zr_block', A({ p_target: o.id, p_report: report })); closeSheet(); toast(report ? `Reported and blocked ${o.handle}.` : `Blocked ${o.handle}. You won't see each other.`); heartbeat(); }
+  catch(e){ toast('Network error.'); }
+}
+
+/* ---------- bite ---------- */
+let biting = false, biteRaf = null, biteStart = 0, biteOk = false;
+function biteTarget(){
+  if (!data) return null;
+  return (data.others || []).filter(o => o.exact && o.state === 'human' && o.dist <= (o.exposed ? EXPOSED_M : BITE_M) + 3)
+    .sort((a,b) => a.dist - b.dist)[0] || null;
+}
+function updateBiteBtn(){
+  const t = biteTarget(), stun = localLeft('stunned') > 0;
+  $('biteBtn').disabled = !t || stun;
+  $('biteLbl').textContent = 'Bite';
+  $('biteSub').textContent = stun ? 'Stunned' : t ? `Hold to bite ${t.handle} (${t.dist} m)` : 'No humans in range';
+}
+function setupBite(){
+  const btn = $('biteBtn');
+  const end = (done) => {
+    biting = false; cancelAnimationFrame(biteRaf); $('biteFill').style.width = '0';
+    if (!done && biteOk) toast('Bite cancelled. Hold for 4 seconds.');
+    biteOk = false; updateBiteBtn();
+  };
+  btn.addEventListener('pointerdown', async e => {
+    e.preventDefault();
+    if (btn.disabled || biting) return;
+    const t = biteTarget(); if (!t) return;
+    biting = true; biteOk = false; biteStart = Date.now();
+    $('biteLbl').textContent = 'Biting…'; $('biteSub').textContent = t.handle;
+    try { btn.setPointerCapture(e.pointerId); } catch(_){}
+    const anim = () => {
+      const p = Math.min(1, (Date.now() - biteStart) / 4000);
+      $('biteFill').style.width = (p * 100) + '%';
+      if (p >= 1) { finish(); return; }
+      biteRaf = requestAnimationFrame(anim);
+    };
+    biteRaf = requestAnimationFrame(anim);
+    try {
+      const r = await rpc('zr_bite_start', A({ p_target: t.id }));
+      if (!biting) return;
+      if (r.error) { toast(errMsg(r)); end(true); return; }
+      biteOk = true;
+    } catch(_) { toast('Network error.'); end(true); }
+  });
+  const finish = async () => {
+    cancelAnimationFrame(biteRaf);
+    if (!biteOk) { setTimeout(() => { if (biting) finish(); }, 300); return; }
+    try {
+      const r = await rpc('zr_bite_finish', A());
+      if (r.error) toast(errMsg(r));
+      else if (r.result === 'resisted') toast('They were vaccinated. The bite failed.');
+      else toast(`You bit ${r.handle}. They turn in 10 minutes unless cured.`);
+    } catch(_) { toast('Network error.'); }
+    end(true); heartbeat();
+  };
+  ['pointerup','pointercancel','pointerleave'].forEach(ev => btn.addEventListener(ev, () => { if (biting && Date.now() - biteStart < 4000) end(false); }));
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/* ---------- sheets ---------- */
+function openSheet(h, html){
+  $('sheetBody').innerHTML = `<div class="sh-h"><h2>${esc(h)}</h2><button class="sh-x" id="shX" aria-label="Close">×</button></div>${html}`;
+  $('sheet').hidden = false; $('shX').onclick = closeSheet;
+  $('sheet').onclick = e => { if (e.target === $('sheet')) closeSheet(); };
+}
+function closeSheet(){ $('sheet').hidden = true; }
+
+function openMenu(){
+  if (!data) return;
+  const me = data.me;
+  const hours = ['<option value="">Off</option>'].concat([...Array(24).keys()].map(h => {
+    const l = (h % 12 || 12) + (h < 12 ? 'am' : 'pm'), e = ((h + 8) % 24), el = (e % 12 || 12) + (e < 12 ? 'am' : 'pm');
+    return `<option value="${h}" ${me.safe_start === h ? 'selected' : ''}>${l} – ${el}</option>`;
+  })).join('');
+  openSheet('Menu', `
+    <div class="sh-sec"><h3>Home zone</h3>
+      <p>${me.home ? 'Within 500 ft of home you\'re sheltered: hidden, and can\'t be bitten.' : 'Set your home so you\'re never shown on the map there.'}</p>
+      <button class="btn ghost" id="mHome">${me.home ? 'Clear home' : 'Set home to where I am now'}</button></div>
+    <div class="sh-sec"><h3>Safe hours</h3><p>8 hours a day with no supply drain while you're away.</p>
+      <select id="mSafe">${hours}</select></div>
+    <div class="menu-grid">
+      <button class="btn ghost" id="mBoard">Leaderboard</button>
+      <button class="btn ghost" id="mHow">How to play</button>
+      <button class="btn ghost" id="mNear">Nearby players</button>
+      <button class="btn ghost" id="mOut">Sign out</button>
+    </div>`);
+  $('mHome').onclick = async () => {
+    try { const r = await rpc('zr_set_home', A({ p_clear: me.home })); if (r.error) toast(errMsg(r)); else { toast(me.home ? 'Home cleared.' : 'Home set. You\'re sheltered within 500 ft of here.'); closeSheet(); heartbeat(); } }
+    catch(e){ toast('Network error.'); }
+  };
+  $('mSafe').onchange = async e => {
+    const v = e.target.value === '' ? null : parseInt(e.target.value, 10);
+    try { await rpc('zr_set_safe', A({ p_start: v })); toast(v == null ? 'Safe hours off.' : 'Safe hours saved.'); data.me.safe_start = v; } catch(_) { toast('Network error.'); }
+  };
+  $('mBoard').onclick = openBoard;
+  $('mHow').onclick = showHowTo;
+  $('mNear').onclick = openNearby;
+  $('mOut').onclick = () => {
+    if (!confirm('Sign out? Your handle and progress live on this phone. Signing out loses them.')) return;
+    store.del('zr_auth'); location.reload();
+  };
+}
+
+async function openBoard(){
+  try {
+    const b = await rpc('zr_board', A());
+    const li = (arr, k) => arr.slice(0,5).map(x => `<li>${esc(x.handle)} <span class="n">${x[k]}</span></li>`).join('') || '<li style="color:var(--dim)">None yet</li>';
+    openSheet('Leaderboard', `
+      <div class="sh-sec"><p>${b.humans} humans vs ${b.zombies_n} zombies this season. Humans win if under half are infected at the end.</p></div>
+      <div class="lb"><div><h3 style="margin:0;font-size:12px;color:var(--rot);text-transform:uppercase;letter-spacing:.08em">Top zombies</h3><ol>${li(b.zombies,'infections')}</ol></div>
+      <div><h3 style="margin:0;font-size:12px;color:var(--human);text-transform:uppercase;letter-spacing:.08em">Top medics</h3><ol>${li(b.medics,'cures')}</ol></div></div>`);
+  } catch(e){ toast('Network error.'); }
+}
+
+function openNearby(){
+  const list = (data.others || []).slice(0, 6);
+  openSheet('Nearby players', list.length ? `<div class="plist">${list.map((o,i) => `<div class="prow">
+      <span class="nm"><b style="color:${o.state==='zombie'?'var(--rot)':o.state==='infected'?'var(--blood)':'var(--human)'}">●</b> ${esc(o.handle)} · ${o.dist} m</span>
+      <button class="btn ghost small" data-i="${i}" data-a="b">Block</button><button class="btn ghost small" data-i="${i}" data-a="r">Report</button></div>`).join('')}</div>`
+    : '<div class="sh-sec"><p>Nobody nearby right now.</p></div>');
+  $('sheetBody').querySelectorAll('button[data-i]').forEach(b => b.onclick = () => {
+    const o = list[+b.dataset.i];
+    if (b.dataset.a === 'b') blockPlayer(o, null); else { const why = prompt('What happened? (optional)'); blockPlayer(o, why || 'reported'); }
+  });
+}
+
+function showHowTo(){
+  openSheet('How to play', `<ol class="how">
+    <li><b style="color:var(--human)">Humans</b>: stay alive. Raid <b style="color:var(--warn)">stockpiles</b> (+) for supplies and items. Stick together: 3+ humans within 50 ft can't be bitten.</li>
+    <li><b style="color:var(--rot)">Zombies</b>: get within 50 ft of a human and hold Bite for 4 seconds. They get a warning, so be quick.</li>
+    <li><b style="color:var(--blood)">Bitten?</b> You turn in 10 minutes unless you or a friend uses an antidote.</li>
+    <li><b>Vaccine</b> blocks the next bite. <b>Flare</b> stuns zombies within 100 ft. <b>Mask</b> hides you from zombie radar.</li>
+    <li><b>Closing the app</b> hides you, but when you come back you're exposed for 2 minutes (5 if you fled a zombie) and supplies drain while you're away.</li>
+    <li>Others only see your exact spot within 50 ft. Set a <b>home zone</b> so you're never shown there.</li>
+  </ol>`);
+}
+
+/* ---------- boot ---------- */
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
+if (auth && auth.id) startLocation(); else showIntro();
+})();
+</script>
+</body>
+</html>
