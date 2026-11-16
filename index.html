@@ -58,6 +58,7 @@ input:focus,select:focus{outline:2px solid var(--rot-dim)}
 
 /* ---------- game ---------- */
 #map{position:absolute;inset:0;background:#0b0f0c}
+#map .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.78) contrast(1.05) saturate(.35)}
 .leaflet-control-attribution{background:rgba(0,0,0,.45)!important;color:#777!important;font-size:9px!important}
 .leaflet-control-attribution a{color:#999!important}
 #top{position:absolute;left:0;right:0;top:0;padding:calc(var(--sat) + 10px) 10px 0;display:flex;gap:8px;align-items:flex-start;z-index:500;pointer-events:none}
@@ -319,9 +320,9 @@ function startGame(){
   started = true;
   $('game').hidden = false;
   map = L.map('map', { zoomControl:false, attributionControl:true, zoomSnap:0.5 }).setView([fix.lat, fix.lng], 18);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 20, subdomains:'abcd',
-    attribution:'© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/">CARTO</a>'
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 20, maxNativeZoom: 19,
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
   layer = L.layerGroup().addTo(map);
   meRing2 = L.circle([fix.lat, fix.lng], { radius: EXPOSED_M, color:'#ffb547', weight:1.5, dashArray:'6 6', fill:false, opacity:0 }).addTo(map);
