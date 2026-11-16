@@ -32,9 +32,16 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .screen{position:fixed;inset:0;display:flex;flex-direction:column;height:100dvh}
 [hidden]{display:none!important}
 
+/* ---------- splash ---------- */
+#splash{z-index:1000;background:#091210 url(/splash.jpg) center top/cover no-repeat;transition:opacity .6s ease}
+#splash.out{opacity:0;pointer-events:none}
+#splash .load{position:absolute;left:0;right:0;bottom:calc(var(--sab) + 40px);text-align:center;font-family:var(--f-head);
+  font-size:14px;letter-spacing:.3em;text-transform:uppercase;color:var(--rot);animation:pulse 1s ease-in-out infinite alternate}
+
 /* ---------- intro ---------- */
-#intro{padding:calc(var(--sat) + 20px) 22px calc(var(--sab) + 16px);justify-content:space-between;
-  background:radial-gradient(ellipse at 50% 30%,rgba(155,229,100,.12),transparent 60%),var(--bg)}
+#intro{padding:calc(var(--sat) + 20px) 22px calc(var(--sab) + 16px);justify-content:flex-end;gap:14px;
+  background:linear-gradient(to bottom,rgba(9,18,16,0) 0%,rgba(9,18,16,0) 30%,rgba(9,18,16,.88) 50%,#091210 62%),#091210 url(/splash.jpg) center top/cover no-repeat}
+#intro .titleBlock{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .logo{font-family:var(--f-head);font-weight:700;font-size:clamp(40px,12vw,64px);line-height:.9;letter-spacing:.02em;margin:0;text-transform:uppercase}
 .logo span{color:var(--rot);display:block}
 .tag{color:var(--dim);margin:10px 0 0;font-size:15px;line-height:1.4}
@@ -143,6 +150,7 @@ input:focus,select:focus{outline:2px solid var(--rot-dim)}
 #locScreen{padding:calc(var(--sat) + 40px) 24px calc(var(--sab) + 24px);justify-content:center;gap:16px;text-align:center;background:var(--bg)}
 #locScreen h2{font-family:var(--f-head);font-size:30px;text-transform:uppercase;margin:0}
 #locScreen p{color:var(--dim);line-height:1.45;margin:0}
+@media (max-height:720px){ #intro .rules{display:none} }
 @media (max-height:640px){
   .rules{gap:6px;font-size:13px} .tag{font-size:13px} .logo{font-size:40px}
   input,select{padding:9px 11px} .btn{padding:11px}
@@ -151,9 +159,12 @@ input:focus,select:focus{outline:2px solid var(--rot-dim)}
 </head>
 <body>
 
+<!-- SPLASH -->
+<section class="screen" id="splash" aria-label="Zombie Radius: The outbreak is closer than you think"><div class="load">Loading</div></section>
+
 <!-- INTRO / SIGN UP -->
 <section class="screen" id="intro" hidden>
-  <div>
+  <div class="titleBlock">
     <h1 class="logo">Zombie<span>Radius</span></h1>
     <p class="tag">A real-world outbreak. Your neighborhood is the map.</p>
   </div>
@@ -258,7 +269,7 @@ const pick = a => a[Math.floor(Math.random()*a.length)];
 const randHandle = () => pick(ADJ) + pick(NOUN) + Math.floor(10 + Math.random()*89);
 
 function showIntro(){
-  $('intro').hidden = false;
+  $('intro').hidden = false; hideSplash();
   $('handle').value = randHandle();
   const sel = $('byear'); const y = new Date().getFullYear();
   sel.innerHTML = '<option value="">Select…</option>';
@@ -301,7 +312,7 @@ function startLocation(){
         $('locMsg').textContent = err.code === 1
           ? 'Location is blocked. Turn it on for this site in your browser settings, then tap Try again.'
           : 'Still looking for a GPS signal. Step outside or near a window, then tap Try again.';
-        $('locBtn').textContent = 'Try again';
+        $('locBtn').textContent = 'Try again'; hideSplash();
       }
     }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
   };
@@ -309,7 +320,7 @@ function startLocation(){
     navigator.permissions.query({ name:'geolocation' }).then(s => { if (s.state === 'granted') begin(); else showLoc(begin); }).catch(() => showLoc(begin));
   } else showLoc(begin);
 }
-function showLoc(begin){ $('locScreen').hidden = false; $('locBtn').onclick = () => { if (watchId !== null) navigator.geolocation.clearWatch(watchId); begin(); }; }
+function showLoc(begin){ $('locScreen').hidden = false; hideSplash(); $('locBtn').onclick = () => { if (watchId !== null) navigator.geolocation.clearWatch(watchId); begin(); }; }
 
 /* ---------- game ---------- */
 let started = false, map, layer, meMarker, meRing, meRing2, follow = true, data = null, since = null;
@@ -361,7 +372,7 @@ async function heartbeat(){
       p_lat: fresh ? fix.lat : null, p_lng: fresh ? fix.lng : null, p_acc: fresh ? fix.acc : null,
       p_tz: new Date().getTimezoneOffset(), p_since: since
     }));
-    data = r; data._at = Date.now();
+    data = r; data._at = Date.now(); hideSplash();
     since = r.now;
     render();
     handleEvents(r.events || []);
@@ -709,6 +720,15 @@ function showHowTo(){
     <li>Others only see your exact spot within 50 ft. Set a <b>home zone</b> so you're never shown there.</li>
   </ol>`);
 }
+
+/* ---------- splash ---------- */
+const splashT0 = Date.now(); let splashGone = false;
+function hideSplash(){
+  if (splashGone) return; splashGone = true;
+  setTimeout(() => { $('splash').classList.add('out'); setTimeout(() => { $('splash').hidden = true; }, 700); },
+    Math.max(0, 2000 - (Date.now() - splashT0)));
+}
+setTimeout(hideSplash, 7000);
 
 /* ---------- boot ---------- */
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
