@@ -17,45 +17,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
 
 <!-- SPLASH -->
 <section class="screen" id="splash" aria-label="Zombie Radius: The outbreak is closer than you think"><div class="load">Loading</div></section>
 
-<!-- INTRO / SIGN UP -->
-<section class="screen" id="intro" hidden>
-  <div class="titleBlock">
-    <h1 class="logo">Zombie<span>Radius</span></h1>
-    <p class="tag">The outbreak is closer than you think.</p>
-  </div>
-  <ul class="rules">
-    <li><i class="dot" style="background:var(--rot)"></i><span><b>Zombies</b> hold to bite humans within 50 ft and smash supply stockpiles.</span></li>
-    <li><i class="dot" style="background:var(--human)"></i><span><b style="color:var(--human)">Humans</b> start empty-handed. Scavenge weapons, armor and gear to fight back.</span></li>
-    <li><i class="dot" style="background:var(--warn)"></i><span><b style="color:var(--warn)">Noise</b> gives you away. Moving, fighting and gunfire ping your spot to zombies.</span></li>
-  </ul>
-  <div class="form">
-    <div class="field">
-      <label for="handle">Your handle (no real names)</label>
-      <div class="row"><input id="handle" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <button class="btn ghost small" id="reroll" type="button">Random</button></div>
-    </div>
-    <div class="field">
-      <label for="byear">Birth year</label>
-      <select id="byear"></select>
-    </div>
-    <label class="chk"><input type="checkbox" id="agree"><span>I'll watch where I'm going, stay off private property and never chase anyone into traffic.</span></label>
-    <div class="err" id="joinErr"></div>
-    <button class="btn" id="joinBtn" disabled>Enter the outbreak</button>
-  </div>
-</section>
-
-<!-- LOCATION -->
-<section class="screen" id="locScreen" hidden>
-  <h2>Location needed</h2>
-  <p id="locMsg">Zombie Radius uses your location while the game is open. It's never shown exactly to anyone unless they're within 50 ft, and never while you're at home.</p>
-  <button class="btn" id="locBtn">Allow location</button>
+<!-- ONBOARDING / AUTH -->
+<section class="screen" id="onb" hidden>
+  <div id="atmo" aria-hidden="true"></div>
+  <main class="ocard" id="ocard"></main>
+  <div class="ocopy">© Jenisan, Inc.</div>
 </section>
 
 <!-- GAME -->
@@ -117,7 +90,7 @@
         <div class="scb"><i></i><span id="cmdScV">0 SC</span></div></div>
       <button class="iconBtn surf" id="cmdSet" aria-label="Settings"></button>
     </div>
-    <div class="tabs surf" id="cmdTabs"><button data-t="st" class="on">STANDINGS</button><button data-t="lb">LEADERBOARD</button><button data-t="bk" id="tabBk">BUNKER</button></div>
+    <div class="tabs surf four" id="cmdTabs"><button data-t="st" class="on">STANDINGS</button><button data-t="lb">LEADERBOARD</button><button data-t="bk" id="tabBk">BUNKER</button><button data-t="set">SETTINGS</button></div>
     <div class="fbody" id="cmdBody"></div>
   </section>
 
@@ -129,6 +102,11 @@
   <div id="toast"></div>
 </section>
 
-<script src="/app.js?v=3"></script>
+<div id="legal" hidden role="dialog" aria-modal="true" aria-labelledby="lgTitle">
+  <div class="lgBox"><div class="lgHead"><h2 id="lgTitle"></h2><button id="lgX" aria-label="Close">×</button></div>
+  <div class="lgMeta" id="lgMeta"></div><div class="lgBody" id="lgBody"></div><button class="obtn" id="lgOk">Close</button></div>
+</div>
+
+<script src="/app.js?v=4"></script>
 </body>
 </html>

@@ -35,66 +35,549 @@ async function loadCatalog(){
   catch(e){ CAT = store.get('zr_cat') || {}; }
 }
 
-/* ---------- intro ---------- */
+/* ---------- accounts / onboarding ---------- */
+const TERMS_VER = '2026-11-16';
+const HOME_R = 150;
+let profile = store.get('zr_profile');
+const saveProfile = p => { profile = Object.assign({}, profile || {}, p); store.set('zr_profile', profile); };
 const ADJ = ['Grim','Rotten','Feral','Silent','Rusty','Pale','Hollow','Swift','Lucky','Ashen','Mossy','Shady','Static','Restless','Crooked','Bitter'];
 const NOUN = ['Otter','Crow','Medic','Ghoul','Scout','Wolf','Moth','Ranger','Badger','Shade','Lynx','Raven','Drifter','Hound','Viper','Fox'];
 const pick = a => a[Math.floor(Math.random()*a.length)];
 const randHandle = () => pick(ADJ) + pick(NOUN) + Math.floor(10 + Math.random()*89);
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
+const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
+function pwInfo(p){
+  const r = { len: p.length >= 8, up: /[A-Z]/.test(p), num: /[0-9]/.test(p) };
+  const ok = r.len && r.up && r.num;
+  const extra = (p.length >= 12) + /[^A-Za-z0-9]/.test(p) + /[a-z]/.test(p);
+  const level = !p ? 0 : !ok ? 1 : (p.length >= 12 && extra >= 2) ? 3 : 2;
+  return { r, ok, level, label: ['', 'WEAK', 'MODERATE', 'TACTICAL'][level] };
+}
+function ageOf(iso){
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-').map(Number); if (!y || !m || !d) return null;
+  const t = new Date(); let a = t.getFullYear() - y;
+  if (t.getMonth() + 1 < m || (t.getMonth() + 1 === m && t.getDate() < d)) a--;
+  return a;
+}
+function maskEmail(e){
+  if (!e) return '—';
+  const [u, dmn] = e.split('@'); if (!dmn) return e;
+  const parts = dmn.split('.'), tld = parts.pop(), host = parts.join('.');
+  const mu = u.length <= 2 ? u[0] + '•' : u[0] + '•'.repeat(Math.min(5, u.length - 2)) + u[u.length - 1];
+  return `${mu}@${host[0] || ''}${'•'.repeat(Math.min(5, Math.max(1, host.length - 1)))}.${tld}`;
+}
+function maskAddr(a){
+  if (!a) return null;
+  const [first, ...rest] = a.split(',');
+  const m = first.trim().split(/\s+/).map(w => w.length <= 2 ? w : w[0] + '•'.repeat(Math.min(6, w.length - 1))).join(' ');
+  return [m].concat(rest.map(s => s.trim()).slice(0, 2)).join(', ');
+}
+const dateStr = iso => iso ? new Date(iso).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }) : '—';
 
-function showIntro(){
-  $('intro').hidden = false; hideSplash();
-  $('handle').value = randHandle();
-  const sel = $('byear'); const y = new Date().getFullYear();
-  sel.innerHTML = '<option value="">Select…</option>';
-  for (let i = y - 10; i >= y - 90; i--) sel.insertAdjacentHTML('beforeend', `<option>${i}</option>`);
-  const check = () => { $('joinBtn').disabled = !($('agree').checked && sel.value && $('handle').value.trim().length >= 3); };
-  ['input','change'].forEach(ev => { sel.addEventListener(ev, check); $('agree').addEventListener(ev, check); $('handle').addEventListener(ev, check); });
-  $('reroll').onclick = () => { $('handle').value = randHandle(); check(); };
-  $('joinBtn').onclick = async () => {
-    const h = $('handle').value.trim(), by = parseInt(sel.value, 10);
-    $('joinErr').textContent = '';
-    if (!/^[A-Za-z0-9_]{3,16}$/.test(h)) { $('joinErr').textContent = 'Handles are 3–16 letters, numbers or _.'; return; }
-    $('joinBtn').disabled = true;
-    try {
-      const r = await rpc('zr_join', { p_handle: h, p_birth_year: by });
-      if (r.error) {
-        $('joinErr').textContent = { too_young:'You must be 13 or older to play.', handle_taken:'That handle is taken. Try another.', bad_handle:'Handles are 3–16 letters, numbers or _.' }[r.error] || r.error;
-        $('joinBtn').disabled = false; return;
-      }
-      auth = { id: r.id, secret: r.secret, handle: h };
-      store.set('zr_auth', auth);
-      $('intro').hidden = true;
-      startLocation();
-    } catch (e) { $('joinErr').textContent = 'Could not connect. Check your signal and try again.'; $('joinBtn').disabled = false; }
+/* onboarding state */
+const OB = { view:'boot', back:null, claim:null, email:'', pw:'', pw2:'', handle:'', dob:'', gender:'', home:null,
+  terms:false, privacy:false, gps:'idle', how:0, emailOk:null, nameOk:null, err:'' };
+let obMap = null, obMarker = null, obCircle = null;
+
+const SIL_M = '<path d="M15 2a7 7 0 110 14 7 7 0 010-14z"/><path d="M5 22c2-3 6-4 10-4s8 1 10 4l2 18h-5l-1 30h-5l-1-24-1 24h-5l-1-30H3z"/>';
+const SIL_F = '<path d="M15 2a7 7 0 110 14 7 7 0 010-14z"/><path d="M21 6c4 2 4 10 1 14"/><path d="M8 22c2-3 4-4 7-4s5 1 7 4l2 14-3 1 4 16h-6l-1 17h-5l-1-17H6l4-16-3-1z"/>';
+const silSvg = f => `<svg viewBox="0 0 30 72" fill="currentColor">${f ? SIL_F : SIL_M}</svg>`;
+
+function showOnb(view){
+  hideSplash();
+  $('onb').hidden = false; $('game').hidden = true;
+  goOnb(view);
+}
+function goOnb(view){ OB.view = view; OB.err = ''; drawOnb(); }
+const prog = (n, back) => `<div class="ohead"><button class="oback" id="obBack" aria-label="Back">${svg('back')}</button>
+  <div class="oprog" aria-hidden="true">${[1,2,3,4].map(i => `<i class="${i < n ? 'done' : i === n ? 'on' : ''}"></i>`).join('')}</div><span class="ostep">STEP ${n} OF 4</span></div>`;
+const fld = (id, label, type, val, attrs, o) => {
+  o = o || {};
+  return `<label class="ofld" for="${id}"><span class="olbl">${label}${o.aside ? `<em>${o.aside}</em>` : ''}</span>
+    <span class="oin" id="${id}W">${o.ic ? svg(o.ic, 'oic') : ''}<input id="${id}" type="${type}" value="${esc(val || '')}" ${attrs || ''}>${o.eye ? `<button type="button" class="eye" data-eye="${id}" aria-label="Show password">${svg('eye')}</button>` : ''}${o.after || ''}</span>
+    <span class="ohint" id="${id}H" aria-live="polite">${o.hint || ''}</span></label>`;
+};
+function hint(id, text, cls){ const h = $(id + 'H'); if (!h) return; h.innerHTML = text; h.className = 'ohint ' + (cls || ''); const w = $(id + 'W'); if (w) { w.classList.toggle('ok', cls === 'ok'); w.classList.toggle('bad', cls === 'bad'); } }
+function bindEyes(root){
+  (root || document).querySelectorAll('[data-eye]').forEach(b => b.onclick = () => {
+    const i = $(b.dataset.eye); const show = i.type === 'password'; i.type = show ? 'text' : 'password';
+    b.innerHTML = svg(show ? 'eyeoff' : 'eye'); b.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+}
+function debounce(fn, ms){ let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+const meterHtml = (id) => `<div class="meter" id="${id}M"><div class="bars"><i></i><i></i><i></i></div><b id="${id}L">STRENGTH</b></div>
+  <div class="rules2" id="${id}R"><span data-r="len">8+ CHARS</span><span data-r="up">1 UPPERCASE</span><span data-r="num">1 NUMBER</span></div>`;
+function paintMeter(id, p){
+  const i = pwInfo(p); const m = $(id + 'M'); if (!m) return i;
+  m.className = 'meter l' + i.level; $(id + 'L').textContent = i.label || 'STRENGTH';
+  $(id + 'R').querySelectorAll('[data-r]').forEach(s => s.classList.toggle('ok', i.r[s.dataset.r]));
+  return i;
+}
+
+const EMBLEM = `<svg viewBox="0 0 120 120" fill="none"><circle cx="60" cy="60" r="56" stroke="#10b981" stroke-opacity=".35" stroke-width="1.5"/>
+  <circle cx="60" cy="60" r="40" stroke="#10b981" stroke-opacity=".3" stroke-dasharray="3 5"/><circle cx="60" cy="60" r="22" stroke="#10b981" stroke-opacity=".45"/>
+  <path d="M60 2v14M60 104v14M2 60h14M104 60h14" stroke="#10b981" stroke-opacity=".6" stroke-width="2"/>
+  <g class="sw"><path d="M60 60L60 4A56 56 0 0198.6 19.4Z" fill="url(#swg)"/></g>
+  <defs><linearGradient id="swg" x1="60" y1="4" x2="98" y2="30"><stop stop-color="#10b981" stop-opacity="0"/><stop offset="1" stop-color="#10b981" stop-opacity=".45"/></linearGradient></defs>
+  <circle cx="60" cy="60" r="5" fill="#10b981"/><circle cx="84" cy="38" r="4.5" fill="#f43f5e"><animate attributeName="opacity" values="1;.2;1" dur="1.6s" repeatCount="indefinite"/></circle>
+  <circle cx="40" cy="80" r="3" fill="#10b981" fill-opacity=".7"/></svg>`;
+
+const HOW = [
+  { t:'Your street is the map', p:'GPS radar shows your real neighborhood. Raid supply drops at real places for weapons, armor and gear. Everything you do makes noise zombies can hear.',
+    ill:`<svg viewBox="0 0 300 180"><g stroke="#10b981" fill="none" stroke-opacity=".35"><circle cx="150" cy="95" r="70"/><circle cx="150" cy="95" r="44" stroke-dasharray="3 5"/><path d="M150 20v150M75 95h150"/></g>
+      <path d="M150 95L150 25A70 70 0 01205 52Z" fill="#10b981" fill-opacity=".18"/><circle cx="150" cy="95" r="6" fill="#10b981"/>
+      <g transform="translate(196 58) rotate(45)"><rect x="-9" y="-9" width="18" height="18" rx="3" fill="#f59e0b"/></g><circle cx="196" cy="58" r="16" fill="none" stroke="#f59e0b" stroke-opacity=".6"/>
+      <g transform="translate(104 128) rotate(45)"><rect x="-8" y="-8" width="16" height="16" rx="3" fill="#ef4444"/></g>
+      <circle cx="120" cy="60" r="12" fill="none" stroke="#f43f5e" stroke-width="2" opacity=".6"/></svg>` },
+  { t:'Survive or spread', p:"Humans scavenge and fight back. Zombies bite, scratch and scream to call the horde. Get infected and you have 5 minutes to find a cure before you turn.",
+    ill:`<svg viewBox="0 0 300 180"><line x1="150" y1="20" x2="150" y2="160" stroke="#2b3530" stroke-dasharray="3 5"/>
+      <g fill="#10b981" fill-opacity=".85" transform="translate(70 40) scale(1.45)">${SIL_M}</g>
+      <g fill="#f43f5e" fill-opacity=".85" transform="translate(205 46) scale(1.35) skewX(-10)"><path d="M18 2a7 7 0 110 14 7 7 0 010-14z"/><path d="M4 22c4-4 10-4 14 0l14 6-2 4-12-4 1 14 4 28h-6l-4-22-4 22H3l3-30z"/></g>
+      <text x="75" y="172" fill="#6ee7b7" font-family="JetBrains Mono,monospace" font-size="11" font-weight="800" letter-spacing="2">HUMAN</text>
+      <text x="200" y="172" fill="#fda4af" font-family="JetBrains Mono,monospace" font-size="11" font-weight="800" letter-spacing="2">ZOMBIE</text></svg>` },
+  { t:'Home stays hidden', p:"Set a Home Stealth Zone. Inside it you vanish from the radar, hotzone alerts and nearby players, so no one can ever track where you live.",
+    ill:`<svg viewBox="0 0 300 180"><circle cx="150" cy="92" r="64" fill="#10b981" fill-opacity=".08" stroke="#10b981" stroke-opacity=".7" stroke-dasharray="6 6"/>
+      <path d="M118 96l32-28 32 28v34h-64z" fill="#0b1310" stroke="#10b981" stroke-width="2.5" stroke-linejoin="round"/><path d="M142 130v-18h16v18" stroke="#10b981" stroke-width="2.5" fill="none"/>
+      <circle cx="250" cy="40" r="5" fill="#f43f5e" fill-opacity=".6"/><circle cx="42" cy="150" r="5" fill="#f43f5e" fill-opacity=".6"/>
+      <text x="150" y="172" fill="#6ee7b7" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="10.5" font-weight="800" letter-spacing="2">STEALTH PERIMETER · 500 FT</text></svg>` }
+];
+
+const VIEWS = {
+  boot: () => `<div class="emb">${EMBLEM}</div>
+    <div class="bootT"><h1>Zombie <span>Radius</span></h1><p>The outbreak is closer than you think.</p></div>
+    <div class="ospacer"></div>
+    <button class="obtn" id="bEnlist">${svg('shield')} Enlist</button>
+    <button class="obtn ghost" id="bSign">${svg('key')} Sign in</button>`,
+  claim: () => `<span class="okick">SECURE YOUR SURVIVOR</span><h2 class="otitle">${esc(OB.handle || 'Survivor')}</h2>
+    <p class="osub">Zombie Radius now uses real accounts. Add an email and password so you can sign in on any phone. You keep your gear, points and progress.</p>
+    <div class="callout">${svg('shield')}<div><b>TAKES ABOUT A MINUTE</b><p>We'll confirm you're 18+, set your Home Stealth Zone and turn on GPS.</p></div></div>
+    <div class="ospacer"></div>
+    <button class="obtn" id="cGo">Secure my account</button>
+    <button class="obtn ghost" id="cOther">Sign in to a different account</button>`,
+  signin: () => `<div class="ohead"><button class="oback" id="obBack" aria-label="Back">${svg('back')}</button><span class="ostep">SIGN IN</span></div>
+    <h2 class="otitle">Welcome back</h2><p class="osub">Sign in with the email and password you enlisted with.</p>
+    ${fld('siE', 'Email address', 'email', OB.email, 'autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"', { ic:'mail' })}
+    ${fld('siP', 'Password', 'password', '', 'autocomplete="current-password" class="pw"', { ic:'key', eye:true })}
+    <div class="ferr" id="siErr">${esc(OB.err)}</div>
+    <div class="ospacer"></div>
+    <button class="obtn" id="siGo">Sign in</button>
+    <p class="osub" style="text-align:center;margin:0">New here? <button class="olink" id="siNew">Enlist</button></p>`,
+  safety: () => `<span class="okick">REQUIRED BRIEFING</span><h2 class="otitle">Field safety</h2>
+    <p class="osub">This game is played on real streets. Before you deploy:</p>
+    <div class="brief">
+      <div>${svg('eye')}<p style="margin:0"><b>Stay aware</b><span>Look up from your phone. Watch for cars, cyclists, curbs and people around you.</span></p></div>
+      <div>${svg('fence')}<p style="margin:0"><b>Never trespass</b><span>Stay on public property. No stockpile is worth entering private land or closed areas.</span></p></div>
+      <div>${svg('traffic')}<p style="margin:0"><b>Obey traffic laws</b><span>Use crosswalks and signals. Never chase or flee into traffic.</span></p></div>
+      <div>${svg('car')}<p style="margin:0"><b>Never play while driving</b><span>No playing behind the wheel or on a bike, scooter or skateboard.</span></p></div>
+    </div>
+    <div class="ospacer"></div>
+    <button class="obtn" id="sfGo">Confirm and proceed</button>`,
+  how: () => { const s = HOW[OB.how]; return `<div class="ohead"><button class="oback" id="obBack" aria-label="Back">${svg('back')}</button><span class="ostep">HOW IT WORKS · ${OB.how + 1} OF 3</span><span style="flex:1"></span><button class="olink" id="hwSkip" style="font-size:12px">Skip</button></div>
+    <div class="slide" id="hwSlide"><div class="ill">${s.ill}</div><h2>${s.t}</h2><p>${s.p}</p></div>
+    <div class="dots">${HOW.map((_, i) => `<i class="${i === OB.how ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="ospacer"></div>
+    <button class="obtn" id="hwNext">${OB.how < 2 ? 'Next' : 'Begin enlistment'}</button>`; },
+  s1: () => `${prog(1)}<h2 class="otitle">Account credentials</h2><p class="osub">Your email is only for signing in and recovery. It's never shown in the game.</p>
+    ${fld('s1E', 'Email address', 'email', OB.email, 'autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"', { ic:'mail', aside:'Login ID · private' })}
+    ${fld('s1P', 'Password', 'password', OB.pw, 'autocomplete="new-password" class="pw"', { ic:'key', eye:true, hint:'' })}
+    <div style="display:grid;gap:6px;margin-top:-8px">${meterHtml('s1')}</div>
+    ${fld('s1C', 'Verify password', 'password', OB.pw2, 'autocomplete="new-password" class="pw"', { ic:'key', eye:true })}
+    <div class="ferr">${esc(OB.err)}</div><div class="ospacer"></div>
+    <button class="obtn" id="s1Go" disabled>Continue</button>`,
+  s2: () => { const max = new Date().toISOString().slice(0, 10); return `${prog(2)}<h2 class="otitle">Character identity</h2><p class="osub">Your character name is what other players see. No real names.</p>
+    ${fld('s2N', 'Character name', 'text', OB.handle, 'maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false"', { ic:'user', aside:'3–16 · A–Z 0–9 _', after:`<button type="button" class="eye" id="s2R" aria-label="Random name" style="width:auto;padding:0 10px;font-size:11px;font-weight:800;letter-spacing:.08em;color:#34d399">RANDOM</button>` })}
+    ${fld('s2D', 'Date of birth', 'date', OB.dob, `max="${max}" min="1900-01-01"`, { aside:'18+ only' })}
+    <div id="s2Lock"></div>
+    <div class="ofld"><span class="olbl">Character build<em>Avatar silhouette &amp; gear fit</em></span>
+      <div class="gcards" role="radiogroup" aria-label="Character build">
+        <button type="button" class="gcard ${OB.gender === 'male' ? 'on' : ''}" data-g="male" role="radio" aria-checked="${OB.gender === 'male'}">${silSvg(false)}<b>MALE</b></button>
+        <button type="button" class="gcard ${OB.gender === 'female' ? 'on' : ''}" data-g="female" role="radio" aria-checked="${OB.gender === 'female'}">${silSvg(true)}<b>FEMALE</b></button>
+      </div></div>
+    <div class="ferr">${esc(OB.err)}</div><div class="ospacer"></div>
+    <button class="obtn" id="s2Go" disabled>Continue</button>`; },
+  s3: () => `${prog(3)}<h2 class="otitle">Home Stealth Zone</h2>
+    ${addrBlock('s3', OB.home)}
+    <div class="callout">${svg('shield')}<div><b>PRIVACY PROTECTION</b><p>Within 500 ft of home you're invisible: not on the radar, not in hotzone alerts and never shown to nearby players, so no one can track where you live. Only the stealth circle is saved to your account; the street address stays on this phone and is never shown to other players.</p></div></div>
+    <div class="ferr">${esc(OB.err)}</div>
+    <button class="obtn" id="s3Go" ${OB.home ? '' : 'disabled'}>Continue</button>`,
+  s4: () => `${prog(4)}<h2 class="otitle">Agreements &amp; GPS</h2>
+    <label class="ochk"><input type="checkbox" id="s4T" ${OB.terms ? 'checked' : ''}><span class="bx">${svg('check')}</span><span>I agree to the <button type="button" class="olink" data-doc="terms">Terms of Service</button></span></label>
+    <label class="ochk"><input type="checkbox" id="s4P" ${OB.privacy ? 'checked' : ''}><span class="bx">${svg('check')}</span><span>I've read the <button type="button" class="olink" data-doc="privacy">Privacy Policy</button>, including how my location is masked</span></label>
+    ${permCard()}
+    <div class="ferr" id="s4Err">${esc(OB.err)}</div><div class="ospacer"></div>
+    <button class="obtn" id="s4Go" disabled>${svg('radar')} Enter sector</button>`,
+  loc: () => `<span class="okick">SIGNED IN AS ${esc((auth && auth.handle) || '').toUpperCase()}</span><h2 class="otitle">GPS radar</h2>
+    ${permCard()}
+    <div class="ospacer"></div>
+    <button class="obtn" id="lcGo" disabled>${svg('radar')} Enter sector</button>`
+};
+
+function addrBlock(pre, home){
+  return `<div class="ofld acwrap"><span class="olbl">Home address<em>Street, city</em></span>
+      <span class="oin" id="${pre}AW">${svg('pin', 'oic')}<input id="${pre}A" type="text" value="${esc(home && home.label || '')}" autocomplete="street-address" placeholder="Start typing your address" spellcheck="false"></span>
+      <div class="aclist" id="${pre}L" hidden></div></div>
+    <button type="button" class="obtn ghost" id="${pre}G" style="min-height:42px;font-size:12px">${svg('gps')} Use current GPS location</button>
+    <div class="omap" id="${pre}M"><div class="empty" id="${pre}ME">${home ? '' : 'NO HOME PIN YET'}</div></div>`;
+}
+function permCard(){
+  const st = OB.gps;
+  const state = st === 'lock' ? `<div class="pstate lock"><i></i>GPS LOCKED${fix ? ` · ±${Math.round(fix.acc)} M` : ''}</div>`
+    : st === 'pend' ? `<div class="pstate pend"><i></i>WAITING FOR YOUR PHONE…</div>`
+    : st === 'deny' ? `<div class="pstate deny">LOCATION BLOCKED<span>${/iPhone|iPad/.test(navigator.userAgent)
+        ? 'iPhone: Settings › Privacy &amp; Security › Location Services › Safari Websites › While Using the App. Then reload this page.'
+        : 'Tap the icon left of the web address › Permissions › Location › Allow. Then tap the button again.'}</span></div>`
+    : st === 'nosig' ? `<div class="pstate deny">NO GPS SIGNAL YET<span>Step outside or near a window, then try again.</span></div>`
+    : `<div class="pstate idle"><i></i>PERMISSION PENDING</div>`;
+  return `<div class="perm"><div class="ph">${svg('gps')}<b>Precise location required</b></div>
+    <p>Radar sweeps, sound radiuses and supply drops all run on your exact GPS position. Choose <b style="color:var(--tx)">Allow While Using</b> and keep Precise on. The game only uses location while it's open, and others never see your exact spot beyond 50 ft.</p>
+    ${state}
+    ${st === 'lock' ? '' : `<button type="button" class="obtn ghost" id="gpsBtn" style="min-height:42px;font-size:12px">${svg('gps')} ${st === 'deny' || st === 'nosig' ? 'Try again' : 'Enable GPS radar permissions'}</button>`}</div>`;
+}
+
+function drawOnb(){
+  const v = OB.view, c = $('ocard');
+  if (obMap) { try { obMap.remove(); } catch(e){} obMap = null; }
+  c.className = 'ocard v-' + v + (/^s[1-4]$|^signin$/.test(v) ? ' full' : '');
+  c.innerHTML = VIEWS[v]();
+  bindEyes(c);
+  (BIND[v] || (() => {}))();
+  const b = $('obBack'); if (b && !b.onclick) b.onclick = () => goOnb(BACK[v] || 'boot');
+  requestAnimationFrame(layoutAtmo);
+  const first = c.querySelector('input:not([type=checkbox])'); if (first && matchMedia('(min-width:700px)').matches) first.focus();
+}
+const BACK = { signin: 'boot', how: 'safety', s1: 'how', s2: 's1', s3: 's2', s4: 's3' };
+
+const BIND = {
+  boot(){ $('bEnlist').onclick = () => goOnb('safety'); $('bSign').onclick = () => goOnb('signin'); },
+  claim(){ $('cGo').onclick = () => goOnb('safety'); $('cOther').onclick = () => { OB.claim = null; store.del('zr_auth'); auth = null; goOnb('signin'); }; },
+  signin(){
+    if (OB.claim) $('obBack').onclick = () => goOnb('claim');
+    const go = async () => {
+      const e = $('siE').value.trim(), p = $('siP').value;
+      if (!EMAIL_RE.test(e) || !p) { $('siErr').textContent = 'Enter your email and password.'; return; }
+      $('siGo').disabled = true; $('siErr').textContent = '';
+      try {
+        const r = await rpc('zr_login', { p_email: e, p_password: p });
+        if (r.error) { $('siErr').textContent = r.error === 'locked' ? `Too many attempts. Try again in ${Math.ceil(r.secs / 60)} min.` : 'That email and password don\'t match.'; $('siGo').disabled = false; return; }
+        auth = { id: r.id, secret: r.secret, handle: r.handle }; store.set('zr_auth', auth);
+        saveProfile({ email: r.email, handle: r.handle, gender: r.gender, onboarded: true, termsVer: r.terms_ver, termsAt: r.terms_at,
+          homeLabel: profile && profile.email === r.email ? profile.homeLabel : null });
+        OB.view = 'loc'; startLocation();
+      } catch(_) { $('siErr').textContent = 'Could not connect. Check your signal and try again.'; $('siGo').disabled = false; }
+    };
+    $('siGo').onclick = go; $('siP').addEventListener('keydown', ev => { if (ev.key === 'Enter') go(); });
+    $('siNew').onclick = () => goOnb('safety');
+  },
+  safety(){ $('sfGo').onclick = () => goOnb(OB.claim ? 's1' : 'how'); },
+  how(){
+    $('obBack').onclick = () => { if (OB.how > 0) { OB.how--; drawOnb(); } else goOnb('safety'); };
+    $('hwSkip').onclick = () => goOnb('s1');
+    $('hwNext').onclick = () => { if (OB.how < 2) { OB.how++; drawOnb(); } else goOnb('s1'); };
+    let x0 = null; const sl = $('hwSlide');
+    sl.addEventListener('pointerdown', e => { x0 = e.clientX; });
+    sl.addEventListener('pointerup', e => { if (x0 == null) return; const dx = e.clientX - x0; x0 = null;
+      if (dx < -40 && OB.how < 2) { OB.how++; drawOnb(); } else if (dx > 40 && OB.how > 0) { OB.how--; drawOnb(); } });
+  },
+  s1(){
+    if (OB.claim) $('obBack').onclick = () => goOnb('safety');
+    const E = $('s1E'), Pw = $('s1P'), C = $('s1C');
+    const valid = () => { const i = pwInfo(Pw.value); $('s1Go').disabled = !(OB.emailOk && i.ok && Pw.value === C.value); };
+    const chk = debounce(async v => {
+      if (!EMAIL_RE.test(v)) { OB.emailOk = null; hint('s1E', v ? 'Enter a valid email, like name@example.com' : '', v ? 'bad' : ''); valid(); return; }
+      hint('s1E', 'Checking…');
+      try {
+        const r = await rpc('zr_check', { p_kind:'email', p_value: v, p_id: OB.claim ? OB.claim.id : null });
+        if (E.value.trim() !== v) return;
+        OB.emailOk = !!(r.valid && r.available);
+        if (OB.emailOk) hint('s1E', '✓ Email available', 'ok');
+        else { hint('s1E', `Account already exists · <button type="button" class="olink" id="s1Sign">Sign in</button>`, 'bad'); const b = $('s1Sign'); if (b) b.onclick = () => { OB.email = v; goOnb('signin'); }; }
+      } catch(_) { OB.emailOk = null; hint('s1E', 'Could not check right now. Try again.', 'bad'); }
+      valid();
+    }, 450);
+    const onE = () => { OB.email = E.value.trim(); OB.emailOk = null; valid(); chk(OB.email); };
+    E.addEventListener('input', onE);
+    const onP = () => {
+      OB.pw = Pw.value; OB.pw2 = C.value; paintMeter('s1', Pw.value);
+      if (C.value) hint('s1C', Pw.value === C.value ? '✓ Passwords match' : 'Passwords do not match', Pw.value === C.value ? 'ok' : 'bad'); else hint('s1C', '');
+      valid();
+    };
+    Pw.addEventListener('input', onP); C.addEventListener('input', onP);
+    onP(); if (OB.email) onE();
+    $('s1Go').onclick = () => goOnb('s2');
+  },
+  s2(){
+    const N = $('s2N'), D = $('s2D');
+    if (!OB.handle) { OB.handle = randHandle(); N.value = OB.handle; }
+    const valid = () => { const a = ageOf(OB.dob); $('s2Go').disabled = !(OB.nameOk && a != null && a >= 18 && OB.gender); };
+    const chk = debounce(async v => {
+      if (!NAME_RE.test(v)) { OB.nameOk = null; hint('s2N', 'Use 3–16 letters, numbers or _', 'bad'); valid(); return; }
+      hint('s2N', 'Checking…');
+      try {
+        const r = await rpc('zr_check', { p_kind:'name', p_value: v, p_id: OB.claim ? OB.claim.id : null });
+        if (N.value.trim() !== v) return;
+        OB.nameOk = !!(r.valid && r.available);
+        hint('s2N', OB.nameOk ? '✓ Character name available' : 'Character name taken', OB.nameOk ? 'ok' : 'bad');
+      } catch(_) { OB.nameOk = null; hint('s2N', 'Could not check right now. Try again.', 'bad'); }
+      valid();
+    }, 400);
+    const onN = () => { OB.handle = N.value.trim(); OB.nameOk = null; valid(); chk(OB.handle); };
+    N.addEventListener('input', onN); onN();
+    $('s2R').onclick = () => { N.value = randHandle(); onN(); };
+    const onD = () => {
+      OB.dob = D.value; const a = ageOf(OB.dob);
+      if (a == null) { hint('s2D', ''); $('s2Lock').innerHTML = ''; }
+      else if (a < 18) {
+        hint('s2D', '', 'bad');
+        $('s2Lock').innerHTML = `<div class="lockout" role="alert">${svg('lock')}<div><b>FIELD ACCESS DENIED</b><p>Players must be 18 years or older to take part in real-world GPS field operations.</p></div></div>`;
+      } else if (a > 120) { hint('s2D', 'Check the year.', 'bad'); $('s2Lock').innerHTML = ''; }
+      else { hint('s2D', `✓ Age verified · ${a}`, 'ok'); $('s2Lock').innerHTML = ''; }
+      valid();
+    };
+    D.addEventListener('input', onD); D.addEventListener('change', onD); onD();
+    document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
+      OB.gender = b.dataset.g;
+      document.querySelectorAll('[data-g]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
+      valid();
+    });
+    $('s2Go').onclick = () => goOnb('s3');
+  },
+  s3(){
+    bindAddr('s3', OB.home, h => { OB.home = h; $('s3Go').disabled = !h; });
+    $('s3Go').onclick = () => goOnb('s4');
+  },
+  s4(){
+    const valid = () => { $('s4Go').disabled = !(OB.terms && OB.privacy && OB.gps === 'lock'); };
+    $('s4T').onchange = e => { OB.terms = e.target.checked; valid(); };
+    $('s4P').onchange = e => { OB.privacy = e.target.checked; valid(); };
+    document.querySelectorAll('[data-doc]').forEach(b => b.onclick = ev => { ev.preventDefault(); openLegal(b.dataset.doc); });
+    bindGps(valid); valid();
+    $('s4Go').onclick = register;
+  },
+  loc(){ bindGps(() => { $('lcGo').disabled = OB.gps !== 'lock'; if (OB.gps === 'lock') enterGame(); }); }
+};
+
+function bindGps(after){
+  const btn = $('gpsBtn');
+  if (btn) btn.onclick = () => { OB.gps = 'pend'; refreshPerm(after); watchGps(); };
+  if (OB.gps !== 'lock' && navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name:'geolocation' }).then(s => { if (s.state === 'granted' && OB.gps === 'idle') { OB.gps = 'pend'; refreshPerm(after); watchGps(); } }).catch(() => {});
+  }
+  gpsHook = () => refreshPerm(after);
+  after && after();
+}
+function refreshPerm(after){
+  const card = document.querySelector('#ocard .perm'); if (!card) return;
+  const tmp = document.createElement('div'); tmp.innerHTML = permCard(); card.replaceWith(tmp.firstElementChild);
+  bindGps(after);
+}
+
+async function register(){
+  const btn = $('s4Go'); btn.disabled = true; $('s4Err').textContent = '';
+  try {
+    const r = await rpc('zr_register', { p_email: OB.email, p_password: OB.pw, p_handle: OB.handle, p_dob: OB.dob, p_gender: OB.gender,
+      p_home_lat: OB.home.lat, p_home_lng: OB.home.lng, p_terms_ver: TERMS_VER,
+      p_claim_id: OB.claim ? OB.claim.id : null, p_claim_secret: OB.claim ? OB.claim.secret : null });
+    if (r.error) {
+      const back = { email_taken:['s1','That email already has an account. Sign in instead, or use another.'], bad_email:['s1','Check your email address.'],
+        weak_password:['s1','Password needs 8+ characters, 1 uppercase letter and 1 number.'], handle_taken:['s2','That character name was just taken. Pick another.'],
+        bad_handle:['s2','Character names are 3–16 letters, numbers or _.'], under_18:['s2','Players must be 18 or older.'], bad_dob:['s2','Check your date of birth.'],
+        bad_gender:['s2','Pick a character build.'], bad_home:['s3','Set your home pin again.'] }[r.error];
+      if (back) { OB.view = back[0]; drawOnb(); OB.err = back[1]; const f = document.querySelector('#ocard .ferr'); if (f) f.textContent = back[1]; return; }
+      $('s4Err').textContent = 'Something went wrong (' + r.error + '). Try again.'; btn.disabled = false; return;
+    }
+    auth = { id: r.id, secret: r.secret, handle: r.handle }; store.set('zr_auth', auth);
+    saveProfile({ email: OB.email.toLowerCase(), handle: r.handle, gender: OB.gender, homeLabel: OB.home.label || null,
+      onboarded: true, termsVer: TERMS_VER, termsAt: new Date().toISOString() });
+    store.set('zr_seen_howto3', 1);
+    OB.pw = OB.pw2 = '';
+    enterGame();
+  } catch(_) { $('s4Err').textContent = 'Could not connect. Check your signal and try again.'; btn.disabled = false; }
+}
+function enterGame(){
+  if (started) return;
+  $('onb').hidden = true; $('atmo').innerHTML = '';
+  if (fix) startGame(); else { OB.view = 'loc'; showOnb('loc'); }
+}
+
+/* address search (Photon / OpenStreetMap) + preview map */
+function bindAddr(pre, home, onPick){
+  const I = $(pre + 'A'), LST = $(pre + 'L');
+  let cur = home ? Object.assign({}, home) : null;
+  const setPin = (h, fit) => {
+    cur = h; onPick(h);
+    const E = $(pre + 'ME'); if (E) E.textContent = h ? '' : 'NO HOME PIN YET';
+    if (!h) return;
+    if (!obMap) {
+      obMap = L_map(pre + 'M', h);
+    }
+    const ll = [h.lat, h.lng];
+    if (!obMarker || !obMap.hasLayer(obMarker)) {
+      obCircle = L.circle(ll, { radius: HOME_R, color:'#10b981', weight:2, dashArray:'6 6', fillColor:'#10b981', fillOpacity:.12, interactive:false }).addTo(obMap);
+      obMarker = L.marker(ll, { draggable:true, icon: L.divIcon({ className:'', iconSize:[26,26], iconAnchor:[13,26], html:'<div class="pinmk"></div>' }) }).addTo(obMap);
+      obMarker.on('drag', e => obCircle.setLatLng(e.target.getLatLng()));
+      obMarker.on('dragend', e => { const p = e.target.getLatLng(); setPin(Object.assign({}, cur, { lat: p.lat, lng: p.lng }), false); });
+    } else { obMarker.setLatLng(ll); obCircle.setLatLng(ll); }
+    if (fit !== false) obMap.setView(ll, 16);
   };
+  const L_map = (id, h) => {
+    const m = L.map(id, { zoomControl:false, attributionControl:true }).setView([h.lat, h.lng], 16);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution:'© OpenStreetMap' }).addTo(m);
+    obMarker = null; return m;
+  };
+  if (cur) setTimeout(() => setPin(cur), 0);
+  const label = p => {
+    const pr = p.properties || {};
+    const street = [pr.housenumber, pr.street || pr.name].filter(Boolean).join(' ');
+    return [street || pr.name, pr.city || pr.town || pr.village || pr.county, pr.state].filter(Boolean).join(', ');
+  };
+  const search = debounce(async q => {
+    if (q.length < 4) { LST.hidden = true; return; }
+    const bias = fix ? `&lat=${fix.lat.toFixed(3)}&lon=${fix.lng.toFixed(3)}` : '';
+    try {
+      const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=en${bias}`).then(x => x.json());
+      if (I.value.trim() !== q) return;
+      const fs = (r.features || []).filter(f => f.geometry);
+      LST.innerHTML = fs.length ? fs.map((f, i) => `<button type="button" data-i="${i}">${esc(label(f))}</button>`).join('') : '<div class="acnote">No matches. Try adding the city.</div>';
+      LST.hidden = false;
+      LST.querySelectorAll('[data-i]').forEach(b => b.onclick = () => {
+        const f = fs[+b.dataset.i]; const lbl = label(f);
+        I.value = lbl; LST.hidden = true; setPin({ lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: lbl });
+      });
+    } catch(_) { LST.innerHTML = '<div class="acnote">Address search is unavailable. Use your GPS location instead.</div>'; LST.hidden = false; }
+  }, 400);
+  I.addEventListener('input', () => search(I.value.trim()));
+  I.addEventListener('blur', () => setTimeout(() => { LST.hidden = true; }, 200));
+  $(pre + 'G').onclick = () => {
+    const b = $(pre + 'G'); b.disabled = true; b.innerHTML = `${svg('gps')} Locating…`;
+    navigator.geolocation.getCurrentPosition(async p => {
+      const h = { lat: p.coords.latitude, lng: p.coords.longitude, label: '' };
+      try {
+        const r = await fetch(`https://photon.komoot.io/reverse?lat=${h.lat}&lon=${h.lng}&lang=en`).then(x => x.json());
+        if (r.features && r.features[0]) h.label = label(r.features[0]);
+      } catch(_) {}
+      if (!h.label) h.label = 'Current GPS location';
+      I.value = h.label; setPin(h);
+      if (!fix) fix = { lat: h.lat, lng: h.lng, acc: p.coords.accuracy, speed: null, t: Date.now() };
+      b.disabled = false; b.innerHTML = `${svg('gps')} Use current GPS location`;
+    }, err => {
+      b.disabled = false; b.innerHTML = `${svg('gps')} Use current GPS location`;
+      I.placeholder = err.code === 1 ? 'Location blocked: type your address instead' : 'No GPS fix: type your address instead';
+    }, { enableHighAccuracy:true, timeout:15000, maximumAge:10000 });
+  };
+}
+
+/* space-aware background silhouettes */
+const WALKER = (x, d, delay, s) => `<g class="walker" style="animation-duration:${d}s;animation-delay:-${delay}s"><g transform="translate(${x} ${200 - 96 * s}) scale(${s})"><g class="bd">
+  <path class="beam" d="M40 30L150 8V62Z" fill="url(#beamG)"/>
+  <path d="M14 9a8 8 0 0116 0v2H14z" fill="#9fb5aa"/><circle cx="22" cy="15" r="6" fill="#9fb5aa"/>
+  <path d="M12 23h20l2 30H10z" fill="#7f958a"/><path d="M14 26h16v12H14z" fill="#60746a"/>
+  <path d="M12 53l-4 40h7l6-28 6 28h7l-5-40z" fill="#7f958a"/><path d="M30 27l12 4-1 4-12-3z" fill="#9fb5aa"/>
+  <path d="M8 22l-9 34 3 1 10-33z" fill="#55685f"/></g></g></g>`;
+const RUNNER = (y, d, delay, s) => `<g class="runner" style="animation-duration:${d}s;animation-delay:-${delay}s"><g transform="translate(0 ${y}) scale(${s})"><g class="bd" fill="#f43f5e">
+  <circle cx="10" cy="16" r="7"/><path d="M14 22c8-2 16 2 18 8l-4 24H12z" transform="skewX(-14)"/>
+  <path d="M8 26l-20 6 1 4 20-4z"/><path d="M12 32l-18 12 2 3 18-10z"/>
+  <path d="M14 52l-12 30 6 2 13-26zM24 52l14 26 5-3-11-27z"/></g></g></g>`;
+function sceneSvg(kind){
+  if (kind === 'horde') return `<svg viewBox="0 0 600 200" preserveAspectRatio="xMidYMax slice">
+    <defs><radialGradient id="hg" cx="50%" cy="100%" r="70%"><stop stop-color="#f43f5e" stop-opacity=".35"/><stop offset="1" stop-color="#f43f5e" stop-opacity="0"/></radialGradient></defs>
+    <rect width="600" height="200" fill="url(#hg)"/><path d="M0 196h600" stroke="#f43f5e" stroke-opacity=".4"/>
+    <path d="M0 150h120v50H0zM470 120h130v80H470z" fill="#140609"/><path d="M210 196l40-22h100l40 22" stroke="#f43f5e" stroke-opacity=".25" fill="none"/>
+    ${RUNNER(108, 11, 0, 1)}${RUNNER(128, 9, 3, .8)}${RUNNER(96, 13, 7, 1.15)}${RUNNER(140, 8, 5, .65)}</svg>`;
+  return `<svg viewBox="0 0 600 200" preserveAspectRatio="xMidYMax slice">
+    <defs><linearGradient id="beamG" x1="0" x2="1"><stop stop-color="#fef3c7" stop-opacity=".55"/><stop offset="1" stop-color="#fef3c7" stop-opacity="0"/></linearGradient>
+      <radialGradient id="fogG"><stop stop-color="#cbd5e1" stop-opacity=".22"/><stop offset="1" stop-color="#cbd5e1" stop-opacity="0"/></radialGradient></defs>
+    <path d="M0 0h90v200H0zM510 0h90v200H510z" fill="#0b1210"/>
+    <g fill="#1d2a24">${[20,60,100,140].map(y => `<rect x="18" y="${y}" width="14" height="20"/><rect x="52" y="${y}" width="14" height="20"/><rect x="528" y="${y + 10}" width="14" height="20"/><rect x="562" y="${y + 10}" width="14" height="20"/>`).join('')}</g>
+    <rect x="18" y="60" width="14" height="20" fill="#f59e0b" fill-opacity=".25"/>
+    <path d="M0 196h600" stroke="#10b981" stroke-opacity=".3"/>
+    ${WALKER(0, 46, 0, .95)}${WALKER(0, 52, 18, .8)}${WALKER(0, 40, 31, 1.05)}
+    <ellipse class="fogp" cx="200" cy="185" rx="220" ry="26" fill="url(#fogG)"/><ellipse class="fogp" cx="430" cy="178" rx="200" ry="22" fill="url(#fogG)" style="animation-delay:-7s"/></svg>`;
+}
+function layoutAtmo(){
+  const at = $('atmo'); if (!at || $('onb').hidden) return;
+  at.innerHTML = '';
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c = $('ocard').getBoundingClientRect(), W = innerWidth, H = innerHeight;
+  const regs = [
+    { k:'bottom', x:0, y:c.bottom + 10, w:W, h:H - c.bottom - 34 },
+    { k:'top', x:0, y:0, w:W, h:c.top - 10 },
+    { k:'left', x:0, y:0, w:c.left - 16, h:H },
+    { k:'right', x:c.right + 16, y:0, w:W - c.right - 16, h:H }
+  ].filter(r => (r.k === 'top' || r.k === 'bottom') ? (r.h >= 120 && r.w >= 300) : (r.w >= 180 && r.h >= 320));
+  if (!regs.length) return;
+  const hordeFirst = ['boot','signin','safety','claim'].includes(OB.view);
+  const kinds = OB.view === 'boot' ? ['patrol','horde'] : [hordeFirst ? 'horde' : 'patrol'];
+  regs.slice(0, OB.view === 'boot' ? 2 : 2).forEach((r, i) => {
+    const kind = kinds[i % kinds.length];
+    const d = document.createElement('div'); d.className = 'ascene ' + kind;
+    const h = r.k === 'left' || r.k === 'right' ? Math.min(r.h, 260) : Math.min(r.h, 240);
+    Object.assign(d.style, { left: r.x + 'px', top: (r.k === 'left' || r.k === 'right' ? H - h - 30 : r.k === 'top' ? Math.max(0, r.y + r.h - h) : r.y) + 'px', width: r.w + 'px', height: h + 'px' });
+    d.innerHTML = sceneSvg(kind); at.appendChild(d);
+  });
+}
+window.addEventListener('resize', debounce(layoutAtmo, 150));
+
+/* legal documents (drafts) */
+const LEGAL = {
+  terms: { t:'Terms of Service', body:`<p class="draft">Draft for review. Have a lawyer check this before public launch.</p>
+    <p>These terms are an agreement between you and Jenisan, Inc. ("we") for Zombie Radius (the "Game"). By creating an account you agree to them.</p>
+    <h3>1. Who can play</h3><p>You must be at least 18 years old. You may hold one account, and the details you give us must be true.</p>
+    <h3>2. Real-world safety</h3><div class="hl"><p>The Game is played in public places. You are responsible for your own safety and conduct. Stay aware of your surroundings, obey all laws and traffic rules, never enter private property or closed areas, and never play while driving or riding.</p></div>
+    <h3>3. Conduct</h3><ul><li>No harassing, stalking, threatening or following other players outside the Game.</li><li>No physical contact. Bites, scratches and attacks happen only on screen.</li><li>No GPS spoofing, cheating, bots or exploiting bugs.</li><li>Character names may not contain real names, slurs or impersonation.</li></ul>
+    <h3>4. Your account</h3><p>Keep your password secret. You are responsible for activity on your account. Tell us if you think it has been compromised.</p>
+    <h3>5. Game items and points</h3><p>Items, Survival Credits, points and rankings have no cash value, can't be sold or transferred, and may change or reset each season.</p>
+    <h3>6. Sponsored locations</h3><p>Sponsored stockpiles are placed with businesses' permission. Follow each business's rules and hours.</p>
+    <h3>7. Suspension</h3><p>We may suspend or close accounts that break these terms or put others at risk.</p>
+    <h3>8. No warranty</h3><p>The Game is provided "as is." GPS and network service can be inaccurate or unavailable.</p>
+    <h3>9. Limitation of liability</h3><p>To the extent the law allows, we aren't liable for injury, loss or damage that results from how or where you choose to play.</p>
+    <h3>10. Changes</h3><p>We may update these terms. If we make important changes we'll ask you to accept them again.</p>` },
+  privacy: { t:'Privacy Policy', body:`<p class="draft">Draft for review. Have a lawyer check this before public launch.</p>
+    <p>This policy explains what Zombie Radius collects and how it's protected.</p>
+    <h3>What we collect</h3><ul><li><b>Email and password.</b> Used only to sign you in and recover your account. Your password is stored as a one-way hash.</li>
+      <li><b>Character name and build.</b> The name is public in the Game. The build (male or female) only sets your avatar.</li>
+      <li><b>Birth year.</b> Your date of birth is checked once to confirm you're 18+. We keep the year only.</li>
+      <li><b>Location while the Game is open.</b> Needed for radar, combat range and supply drops.</li>
+      <li><b>Home Stealth Zone.</b> A map point and a 500 ft radius.</li><li><b>Gameplay.</b> Items, points, infections, cures, blocks and reports.</li></ul>
+    <h3>Email privacy</h3><div class="hl"><p>Your email is never shown to other players, on leaderboards or in combat logs.</p></div>
+    <h3>Location masking</h3><div class="hl"><p>Other players see your exact position only within about 50 ft. Further away, you appear only as a rough zone. Closing the app removes you from the map.</p></div>
+    <h3>Home Stealth Zone</h3><div class="hl"><p>Inside your zone you're hidden from the radar, hotzone alerts and nearby players. Only the zone's point and radius are saved to your account. The street address you type is looked up with a map search service (Photon, based on OpenStreetMap) and then kept only on your phone. Other players can never see your home.</p></div>
+    <h3>Who we share with</h3><p>We don't sell your data. Service providers that run the Game handle it on our behalf: Supabase (database), Vercel (hosting), OpenStreetMap (map tiles) and Photon by Komoot (address search).</p>
+    <h3>Keeping and deleting data</h3><p>We keep your account while it's active. Ask us to delete your account and we'll erase your email, password, home zone and location history.</p>
+    <h3>Security</h3><p>Data is sent over encrypted connections and stored encrypted at rest by our providers.</p>
+    <h3>Changes</h3><p>If we change this policy in an important way, we'll ask you to review it again.</p>` }
+};
+function openLegal(k){
+  const d = LEGAL[k]; $('lgTitle').textContent = d.t;
+  const acc = profile && profile.termsAt ? ` · ACCEPTED ${dateStr(profile.termsAt).toUpperCase()}` : '';
+  $('lgMeta').textContent = `VERSION ${TERMS_VER}${acc}`;
+  $('lgBody').innerHTML = d.body; $('lgBody').scrollTop = 0; $('legal').hidden = false;
+  const close = () => { $('legal').hidden = true; };
+  $('lgX').onclick = close; $('lgOk').onclick = close;
+  $('legal').onclick = e => { if (e.target === $('legal')) close(); };
+  $('lgOk').focus();
 }
 
 /* ---------- location ---------- */
-let fix = null, watchId = null;
-function startLocation(){
-  if (!('geolocation' in navigator)) { $('locScreen').hidden = false; hideSplash(); $('locMsg').textContent = "This browser can't share location, so the game can't run here."; $('locBtn').hidden = true; return; }
-  const begin = () => {
-    $('locBtn').disabled = true;
-    watchId = navigator.geolocation.watchPosition(p => {
-      fix = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy,
-              speed: (p.coords.speed != null && p.coords.speed >= 0) ? p.coords.speed : null, t: Date.now() };
-      if (!started) { $('locScreen').hidden = true; startGame(); }
-    }, err => {
-      $('locBtn').disabled = false;
-      if (!started) {
-        $('locScreen').hidden = false; hideSplash();
-        $('locMsg').textContent = err.code === 1
-          ? 'Location is blocked. Turn it on for this site in your browser settings, then tap Try again.'
-          : 'Still looking for a GPS signal. Step outside or near a window, then tap Try again.';
-        $('locBtn').textContent = 'Try again';
-      }
-    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
-  };
-  if (navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name:'geolocation' }).then(s => { if (s.state === 'granted') begin(); else showLoc(begin); }).catch(() => showLoc(begin));
-  } else showLoc(begin);
+let fix = null, watchId = null, gpsHook = null;
+function watchGps(){
+  if (!('geolocation' in navigator)) { OB.gps = 'deny'; gpsHook && gpsHook(); return; }
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = navigator.geolocation.watchPosition(p => {
+    fix = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy,
+            speed: (p.coords.speed != null && p.coords.speed >= 0) ? p.coords.speed : null, t: Date.now() };
+    if (OB.gps !== 'lock') { OB.gps = 'lock'; gpsHook && gpsHook(); }
+  }, err => {
+    if (started) return;
+    OB.gps = err.code === 1 ? 'deny' : 'nosig'; gpsHook && gpsHook();
+  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
 }
-function showLoc(begin){ $('locScreen').hidden = false; hideSplash(); $('locBtn').onclick = () => { if (watchId !== null) navigator.geolocation.clearWatch(watchId); begin(); }; }
+function startLocation(){
+  const go = () => { OB.gps = 'pend'; gpsHook = () => { if (OB.gps === 'lock') enterGame(); else if (!started) showOnb('loc'); }; watchGps(); };
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name:'geolocation' }).then(s => { if (s.state === 'granted') go(); else showOnb('loc'); }).catch(() => showOnb('loc'));
+  } else showOnb('loc');
+}
 
 /* ---------- icons ---------- */
 const P = {
@@ -130,6 +613,23 @@ const P = {
   lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>'
 };
 const svg = (k, cls) => `<svg class="${cls || 'ic'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${P[k] || P.target}</svg>`;
+Object.assign(P, {
+  back:'<path d="M15 5l-7 7 7 7"/>',
+  eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff:'<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0112 5c6.5 0 10 7 10 7a17 17 0 01-3.2 4.1M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.6 9.6 0 005.4-1.6"/><path d="M9.9 9.9a3 3 0 004.2 4.2"/>',
+  mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  key:'<circle cx="8" cy="14" r="4"/><path d="M11 11l9-9M16 6l3 3M14 8l2 2"/>',
+  user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/>',
+  shield:'<path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M9 12l2 2 4-4"/>',
+  pin:'<path d="M12 22s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>',
+  gps:'<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  check:'<path d="M5 12l5 5 9-10"/>',
+  doc:'<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h7M9 17h7"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  fence:'<path d="M4 21V7l2-3 2 3v14M16 21V7l2-3 2 3v14M4 11h16M4 16h16"/>',
+  traffic:'<rect x="8" y="2" width="8" height="20" rx="3"/><circle cx="12" cy="7" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="17" r="1.6"/>',
+  car:'<path d="M5 16l1.5-5.5A2 2 0 018.4 9h7.2a2 2 0 011.9 1.5L19 16"/><rect x="3" y="16" width="18" height="4" rx="1"/><path d="M7 20v2M17 20v2"/>'
+});
 const ITEM_IC = { bat:'bat', crowbar:'crow', shotgun:'gun', rifle:'gun', carbine:'gun', bow:'bow', shove:'hand', antiviral:'syr', epipen:'syr',
   bearspray:'spray', scentspray:'spray', pills:'pill', claymore:'mine', roadflare:'flare', drone:'drone', aa:'batt', powerbank:'batt', radio:'radio',
   maglite:'torch', ducttape:'tape', cryocase:'case', stungun:'bolt' };
@@ -212,7 +712,7 @@ function startGame(){
   $('invHome').onclick = () => { closeInv(); openCmd('st'); };
   $('invBack').onclick = closeInv;
   $('cmdBack').onclick = closeCmd;
-  $('cmdSet').onclick = openMenu;
+  $('cmdSet').onclick = () => openCmd('set');
   $('invTabs').querySelectorAll('button').forEach(b => b.onclick = () => { invTab = b.dataset.t; drawInv(); });
   $('cmdTabs').querySelectorAll('button').forEach(b => b.onclick = () => openCmd(b.dataset.t));
   $('lightBtn').onclick = toggleLight;
@@ -868,7 +1368,7 @@ function drawInv(){
     body.innerHTML = `<div id="doll">${avatar(true)}<div class="gcol l">${gslot('z_head','Headgear')}<div style="flex:1"></div></div><div class="gcol r">${gslot('z_armor','Armor')}<div style="flex:1"></div></div></div>`;
     $('invFoot').textContent = "Zombies can't carry weapons, items or backpacks. Remnant armor soaks damage until it breaks.";
   } else if (invTab === 'gear') {
-    body.innerHTML = `<div id="doll">${avatar(false)}
+    body.innerHTML = `<div id="doll">${avatar(false, !!(profile && profile.gender === 'female'))}
       <div class="gcol l">${gslot('head','Headgear')}${gslot('armor','Armor')}${gslot('eq1','Item 1')}</div>
       <div class="gcol r">${gslot('weapon','Weapon',true)}${gslot('bag','Backpack',true)}${gslot('eq2','Item 2')}</div></div>`;
     $('invFoot').textContent = 'Tap a slot to inspect. Moving an item into Item 1 or 2 takes 10s.';
@@ -1007,7 +1507,8 @@ function openCmd(tab){
   $('cmdScV').textContent = (data.me.sc || data.me.points || 0).toLocaleString() + ' SC';
   const days = data.season ? Math.max(0, Math.ceil((new Date(data.season.ends_at) - Date.now()) / 86400000)) : 0;
   $('cmdSub').textContent = `${data.me.handle} · ${data.season ? esc(data.season.name) + ' · ' + days + 'd left' : ''}`;
-  if (cmdTab === 'st') drawStandings(); else if (cmdTab === 'lb') drawBoard(); else drawBunker();
+  const cb = $('cmdBody'); cb.style.display = ''; cb.style.flexDirection = ''; cb.dataset.bk = '';
+  if (cmdTab === 'st') drawStandings(); else if (cmdTab === 'lb') drawBoard(); else if (cmdTab === 'set') { drawSettings(); loadAcct().then(() => { if (cmdTab === 'set' && !$('cmd').hidden) drawSettings(); }); } else drawBunker();
 }
 function closeCmd(){ $('cmd').hidden = true; }
 const dur = s => { s = Math.max(0, s | 0); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; };
@@ -1024,7 +1525,7 @@ async function drawStandings(){
       <div class="h4">Career</div>
       <div class="career">${tile('Total horde', s.total_horde)}${tile('Longest survival', dur(s.longest))}${tile('Seasons played', s.seasons)}${tile('K/D', kd, `${s.kills} downs · ${s.deaths} deaths`)}</div>
       <div class="setrow" style="margin-top:12px"><button class="btn ghost" id="cHow">How to play</button><button class="btn ghost" id="cMenu">Settings</button></div>`;
-    $('cHow').onclick = showHowTo; $('cMenu').onclick = openMenu;
+    $('cHow').onclick = showHowTo; $('cMenu').onclick = () => openCmd('set');
   };
   if (standCache) paint(standCache); else body.innerHTML = '<div class="lockv">Loading…</div>';
   try { standCache = await rpc('zr_standings', A()); if (cmdTab === 'st' && !$('cmd').hidden) paint(standCache); }
@@ -1073,6 +1574,168 @@ function drawBunker(){
   if ($('bkSet')) $('bkSet').onclick = () => act('set', 'Bunker started. Ready in 10 minutes.');
   if ($('bkRe')) $('bkRe').onclick = () => { if (confirm('Abandon your bunker and start a new one where you are? The new one takes 10 minutes.')) act('rebuild', 'New bunker started. Ready in 10 minutes.'); };
   if ($('bkAb')) $('bkAb').onclick = () => { if (confirm('Abandon your bunker?')) act('abandon', 'Bunker abandoned.'); };
+}
+
+/* ---------- settings tab ---------- */
+let acct = null, homeShown = false;
+async function loadAcct(){
+  try { acct = await rpc('zr_account', A()); saveProfile({ email: acct.email, handle: acct.handle, gender: acct.gender, termsVer: acct.terms_ver, termsAt: acct.terms_at }); }
+  catch(_) {}
+  return acct;
+}
+const left24 = (iso, hrs) => iso ? Math.max(0, Date.parse(iso) + hrs * 3600e3 - Date.now()) / 1000 : 0;
+const hm = s => { s = Math.ceil(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.ceil(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; };
+function drawSettings(){
+  const body = $('cmdBody'), a = acct || {}, p = profile || {};
+  const email = a.email || p.email, addr = p.homeLabel;
+  const homeCd = a.home ? left24(a.home_set_at, 24) : 0;
+  const nameCd = left24(a.name_changed_at, 168);
+  const hours = data && data.me.safe_start != null ? (() => { const h = data.me.safe_start, e = (h + 8) % 24, f = x => (x % 12 || 12) + (x < 12 ? 'am' : 'pm'); return `${f(h)} – ${f(e)}`; })() : 'Off';
+  const row = (k, icon, label, val, extra) => `<button class="srow surf" data-s="${k}">${svg(icon)}<span class="sx"><span class="sk">${label}</span><span class="sv">${val}</span></span>${extra || '<span class="chev">›</span>'}</button>`;
+  const homeVal = !a.home && !p.homeLabel ? 'Not set' : addr ? esc(homeShown ? addr : maskAddr(addr)) : 'Set <small>· address saved on another device</small>';
+  body.innerHTML = `<div class="srows">
+      ${row('name', 'user', 'Character name', `${esc(a.handle || (data && data.me.handle) || '')}${nameCd > 0 ? ` <small class="cdn">· change in ${hm(nameCd)}</small>` : ''}`)}
+      ${row('email', 'mail', 'Login email', esc(maskEmail(email)))}
+      ${row('pw', 'key', 'Password', '••••••••••')}
+      ${row('home', 'shield', 'Home stealth zone', `${homeVal}${homeCd > 0 ? ` <small class="cdn">· move in ${hm(homeCd)}</small>` : ''}`,
+         addr ? `<span class="rev" id="hRev" role="button" aria-label="${homeShown ? 'Hide' : 'Show'} address">${svg(homeShown ? 'eyeoff' : 'eye')}</span>` : undefined)}
+      ${row('legal', 'doc', 'Legal', `Accepted ${dateStr(a.terms_at || p.termsAt)} <small>· v${esc(a.terms_ver || p.termsVer || TERMS_VER)}</small>`)}
+      ${row('safe', 'clock', 'Safe hours', hours)}
+      ${row('how', 'radar', 'How to play', 'Rules and controls')}
+    </div>
+    <div class="ospacer" style="flex:1;min-height:6px"></div>
+    <button class="obtn red" id="sOut">Sign out</button>
+    ${DBG ? '<button class="olink" id="sReset" style="margin:8px auto 0;font-size:11px;color:#f59e0b">Reset onboarding (test)</button>' : ''}`;
+  body.style.display = 'flex'; body.style.flexDirection = 'column';
+  body.querySelectorAll('[data-s]').forEach(b => b.onclick = ev => {
+    if (ev.target.closest('#hRev')) { ev.stopPropagation(); homeShown = !homeShown; drawSettings(); return; }
+    ({ name: sheetName, email: sheetEmail, pw: sheetPw, home: sheetHome, legal: sheetLegal, safe: sheetSafe, how: showHowTo })[b.dataset.s]();
+  });
+  $('sOut').onclick = () => { if (confirm('Sign out of Zombie Radius on this phone?')) signOut(); };
+  if ($('sReset')) $('sReset').onclick = () => { store.del('zr_seen_howto3'); signOut(); };
+}
+function signOut(){ store.del('zr_auth'); store.del('zr_profile'); location.href = location.pathname + location.search; }
+function setErr(id, t, ok){ const e = $(id); if (e) { e.textContent = t || ''; e.style.color = ok ? '#34d399' : ''; } }
+async function doneMsg(msg){ toast(msg); closeSheet(); await loadAcct(); if (!$('cmd').hidden && cmdTab === 'set') drawSettings(); }
+
+function sheetName(){
+  const a = acct || {}, cd = left24(a.name_changed_at, 168);
+  openSheet('Character name', `
+    <div class="sh-sec"><h3>Current</h3><p style="color:var(--tx);font-weight:700;font-size:15px">${esc(a.handle || data.me.handle)}</p></div>
+    ${fld('stN', 'New character name', 'text', '', 'maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false"', { ic:'user', aside:'3–16 · A–Z 0–9 _' })}
+    <p class="${cd > 0 ? 'cdn' : 'osub'}" style="margin:0;font-size:12px">${cd > 0 ? `You changed it recently. Next change in ${hm(cd)}.` : 'You can change your name once every 7 days. Your stats and rank stay with you.'}</p>
+    <div class="ferr" id="stNE"></div>
+    <button class="obtn" id="stNGo" disabled>Update character name</button>`);
+  let ok = false;
+  const N = $('stN'), go = $('stNGo');
+  const chk = debounce(async v => {
+    if (!NAME_RE.test(v)) { ok = false; hint('stN', v ? 'Use 3–16 letters, numbers or _' : '', v ? 'bad' : ''); go.disabled = true; return; }
+    try { const r = await rpc('zr_check', { p_kind:'name', p_value: v, p_id: auth.id }); if (N.value.trim() !== v) return;
+      ok = r.available && v !== (a.handle || data.me.handle); hint('stN', ok ? '✓ Character name available' : r.available ? "That's your current name" : 'Character name taken', ok ? 'ok' : 'bad'); }
+    catch(_) { ok = false; }
+    go.disabled = !ok || cd > 0;
+  }, 400);
+  N.addEventListener('input', () => { go.disabled = true; chk(N.value.trim()); });
+  go.onclick = async () => {
+    if (!confirm(`Change your name to ${N.value.trim()}? You won't be able to change it again for 7 days.`)) return;
+    go.disabled = true;
+    try { const r = await rpc('zr_set_name', A({ p_name: N.value.trim() }));
+      if (r.error) { setErr('stNE', { name_cooldown:`Next change in ${hm(r.secs)}.`, handle_taken:'That name was just taken.', bad_handle:'Use 3–16 letters, numbers or _.', same_name:"That's already your name." }[r.error] || r.error); go.disabled = false; return; }
+      auth.handle = r.handle; store.set('zr_auth', auth); saveProfile({ handle: r.handle }); doneMsg(`You're now ${r.handle}.`); heartbeat(); }
+    catch(_) { setErr('stNE', 'Network error.'); go.disabled = false; }
+  };
+}
+function sheetEmail(){
+  const cur = (acct && acct.email) || (profile && profile.email);
+  openSheet('Login email', `
+    <div class="sh-sec"><h3>Current</h3><p style="color:var(--tx);font-weight:700;font-size:15px">${esc(maskEmail(cur))}</p></div>
+    ${fld('seE', 'New email address', 'email', '', 'autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false"', { ic:'mail' })}
+    ${fld('seP', 'Current password', 'password', '', 'autocomplete="current-password" class="pw"', { ic:'key', eye:true, aside:'Required for security' })}
+    <div class="ferr" id="seErr"></div>
+    <button class="obtn" id="seGo" disabled>Update email</button>`);
+  bindEyes($('sheetBody'));
+  let ok = false; const E = $('seE'), Pw = $('seP'), go = $('seGo');
+  const valid = () => { go.disabled = !(ok && Pw.value.length >= 8); };
+  const chk = debounce(async v => {
+    if (!EMAIL_RE.test(v)) { ok = false; hint('seE', v ? 'Enter a valid email' : '', v ? 'bad' : ''); valid(); return; }
+    try { const r = await rpc('zr_check', { p_kind:'email', p_value: v, p_id: auth.id }); if (E.value.trim() !== v) return;
+      ok = r.available && v.toLowerCase() !== (cur || '').toLowerCase();
+      hint('seE', ok ? '✓ Email available' : r.available ? "That's your current email" : 'Another account uses this email', ok ? 'ok' : 'bad'); }
+    catch(_) { ok = false; }
+    valid();
+  }, 450);
+  E.addEventListener('input', () => { ok = false; valid(); chk(E.value.trim()); }); Pw.addEventListener('input', valid);
+  go.onclick = async () => {
+    go.disabled = true;
+    try { const r = await rpc('zr_set_email', A({ p_email: E.value.trim(), p_password: Pw.value }));
+      if (r.error) { setErr('seErr', { bad_password:'Current password is incorrect.', email_taken:'Another account uses this email.', bad_email:'Enter a valid email.' }[r.error] || r.error); go.disabled = false; return; }
+      saveProfile({ email: r.email }); doneMsg('Login email updated.'); }
+    catch(_) { setErr('seErr', 'Network error.'); go.disabled = false; }
+  };
+}
+function sheetPw(){
+  openSheet('Change password', `
+    ${fld('spO', 'Current password', 'password', '', 'autocomplete="current-password" class="pw"', { ic:'key', eye:true })}
+    ${fld('spN', 'New password', 'password', '', 'autocomplete="new-password" class="pw"', { ic:'key', eye:true })}
+    <div style="display:grid;gap:6px;margin-top:-8px">${meterHtml('sp')}</div>
+    ${fld('spC', 'Confirm new password', 'password', '', 'autocomplete="new-password" class="pw"', { ic:'key', eye:true })}
+    <div class="ferr" id="spErr"></div>
+    <button class="obtn" id="spGo" disabled>Update password</button>`);
+  bindEyes($('sheetBody'));
+  const O = $('spO'), N = $('spN'), C = $('spC'), go = $('spGo');
+  const v = () => { const i = paintMeter('sp', N.value);
+    if (C.value) hint('spC', N.value === C.value ? '✓ Passwords match' : 'Passwords do not match', N.value === C.value ? 'ok' : 'bad'); else hint('spC', '');
+    go.disabled = !(O.value && i.ok && N.value === C.value); };
+  [O, N, C].forEach(x => x.addEventListener('input', v)); v();
+  go.onclick = async () => {
+    go.disabled = true;
+    try { const r = await rpc('zr_set_password', A({ p_old: O.value, p_new: N.value }));
+      if (r.error) { setErr('spErr', { bad_password:'Current password is incorrect.', weak_password:'New password needs 8+ characters, 1 uppercase letter and 1 number.' }[r.error] || r.error); go.disabled = false; return; }
+      doneMsg('Password updated.'); }
+    catch(_) { setErr('spErr', 'Network error.'); go.disabled = false; }
+  };
+}
+function sheetHome(){
+  const a = acct || {}, cd = a.home ? left24(a.home_set_at, 24) : 0, addr = profile && profile.homeLabel;
+  let pick = null, shown = false;
+  openSheet('Home stealth zone', `
+    <div class="sh-sec" style="padding:8px 12px"><h3>Current</h3><div style="display:flex;align-items:center;gap:8px"><p style="color:var(--tx);font-weight:700;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="shCur">${addr ? esc(maskAddr(addr)) : a.home ? 'Set (address saved on another device)' : 'Not set'}</p>
+      ${addr ? `<button class="eye" style="position:static" id="shRev" aria-label="Show address">${svg('eye')}</button>` : ''}</div></div>
+    ${addrBlock('sh', null)}
+    <p style="margin:0;font-size:12px;color:#a7c4b8;line-height:1.38">Your new zone hides every entry and exit at your new home from other players. Only the stealth circle is saved; the address stays on this phone.</p>
+    <p class="cdn" style="margin:0">${cd > 0 ? `RELOCATION COOLDOWN · ${hm(cd)} LEFT` : 'You can move your zone once every 24 hours.'}</p>
+    <div class="ferr" id="shErr"></div>
+    <button class="obtn" id="shGo" disabled>Save new home perimeter</button>`);
+  if ($('shRev')) $('shRev').onclick = () => { shown = !shown; $('shCur').textContent = shown ? addr : maskAddr(addr); $('shRev').innerHTML = svg(shown ? 'eyeoff' : 'eye'); };
+  if (obMap) { try { obMap.remove(); } catch(e){} obMap = null; }
+  bindAddr('sh', null, h => { pick = h; $('shGo').disabled = !h || cd > 0; });
+  $('shGo').onclick = async () => {
+    $('shGo').disabled = true;
+    try { const r = await rpc('zr_set_home2', A({ p_lat: pick.lat, p_lng: pick.lng }));
+      if (r.error) { setErr('shErr', r.error === 'home_cooldown' ? `You can move it again in ${hm(r.secs)}.` : 'Pick a valid spot.'); return; }
+      saveProfile({ homeLabel: pick.label || null }); doneMsg('Home stealth perimeter saved.'); heartbeat(); }
+    catch(_) { setErr('shErr', 'Network error.'); $('shGo').disabled = false; }
+  };
+}
+function sheetLegal(){
+  const at = (acct && acct.terms_at) || (profile && profile.termsAt);
+  openSheet('Legal', `<div class="sh-sec"><p>You accepted version <b style="color:var(--tx)">${esc((acct && acct.terms_ver) || (profile && profile.termsVer) || TERMS_VER)}</b> on ${dateStr(at)}.</p></div>
+    <button class="obtn ghost" data-doc="terms">${svg('doc')} Terms of Service</button><button class="obtn ghost" data-doc="privacy">${svg('doc')} Privacy Policy</button>`);
+  $('sheetBody').querySelectorAll('[data-doc]').forEach(b => b.onclick = () => openLegal(b.dataset.doc));
+}
+function sheetSafe(){
+  const me = data.me;
+  const hours = ['<option value="">Off</option>'].concat([...Array(24).keys()].map(h => {
+    const l = (h % 12 || 12) + (h < 12 ? 'am' : 'pm'), e = ((h + 8) % 24), el = (e % 12 || 12) + (e < 12 ? 'am' : 'pm');
+    return `<option value="${h}" ${me.safe_start === h ? 'selected' : ''}>${l} – ${el}</option>`;
+  })).join('');
+  openSheet('Safe hours', `<div class="sh-sec"><p>Pick an 8-hour window, like overnight, when your supplies don't drain while you're away.</p></div>
+    <label class="ofld"><span class="olbl">Window</span><span class="oin"><select id="mSafe">${hours}</select></span></label>`);
+  $('mSafe').onchange = async e => {
+    const v = e.target.value === '' ? null : parseInt(e.target.value, 10);
+    try { await rpc('zr_set_safe', A({ p_start: v })); data.me.safe_start = v; toast(v == null ? 'Safe hours off.' : 'Safe hours saved.'); closeSheet(); if (cmdTab === 'set') drawSettings(); }
+    catch(_) { toast('Network error.'); }
+  };
 }
 
 /* ---------- sheets ---------- */
@@ -1149,5 +1812,15 @@ setTimeout(hideSplash, 7000);
 
 /* ---------- boot ---------- */
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
-loadCatalog().finally(() => { if (auth && auth.id) startLocation(); else showIntro(); });
+loadCatalog().finally(async () => {
+  if (!(auth && auth.id)) return showOnb('boot');
+  if (profile && profile.onboarded && profile.email) return startLocation();
+  try {
+    const a = await rpc('zr_account', A());
+    if (a.email) { saveProfile({ email: a.email, handle: a.handle, gender: a.gender, onboarded: true, termsVer: a.terms_ver, termsAt: a.terms_at }); return startLocation(); }
+    OB.claim = { id: auth.id, secret: auth.secret }; OB.handle = a.handle || ''; showOnb('claim');
+  } catch (e) {
+    if (/bad_auth/.test(e.message)) { store.del('zr_auth'); auth = null; showOnb('boot'); } else startLocation();
+  }
+});
 })();
