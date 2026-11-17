@@ -14,10 +14,10 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="/style.css?v=2">
+<link rel="stylesheet" href="/style.css?v=3">
 </head>
 <body>
 
@@ -61,41 +61,66 @@
 <!-- GAME -->
 <section class="screen" id="game" hidden>
   <div id="map"></div>
-  <div id="top">
-    <div class="chip" id="status">
-      <div class="st" id="stText">—</div>
-      <div class="sub" id="stSub"></div>
-      <div class="bar" id="barWrap"><i id="barA"></i><i id="barB"></i></div>
+  <div id="vignette"></div>
+  <header id="hdr">
+    <button class="iconBtn surf" id="homeBtn" aria-label="Home Command"></button>
+    <div class="surf" id="pill">
+      <div id="pillTop"><span id="pillLbl">—</span><span class="regen" id="regenB" hidden>+5%/m</span><span id="pillState"></span></div>
+      <div class="trk" id="armTrk"><i id="armBar" style="width:0"></i></div>
+      <div class="trk hp"><i id="hpBar" style="width:100%"></i></div>
     </div>
-    <button class="chip" id="menuBtn" aria-label="Menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-    </button>
-  </div>
+    <button class="iconBtn surf" id="packBtn" aria-label="Gear and backpack"></button>
+  </header>
+  <div class="surf" id="dataBan" hidden><div class="row"><span class="tag" id="dbTag">DATA</span><span class="txt" id="dbTxt"></span></div><div class="trk" id="dbTrk" hidden><i id="dbBar"></i></div></div>
   <div id="banners"></div>
-  <div class="chip" id="gps">GPS —</div>
-  <button id="recenter" aria-label="Center on me">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
-  </button>
+  <div class="surf" id="dbg" hidden></div>
   <div id="bottom">
-    <!-- human controls -->
-    <div id="humanCtl">
-      <div id="quick">
-        <button class="qs" id="q-eq1" data-slot="eq1"></button>
-        <button class="qs" id="q-eq2" data-slot="eq2"></button>
-        <button class="qs" id="q-light" hidden></button>
-        <button class="qs gearBtn" id="q-gear"></button>
-      </div>
-      <button class="bigBtn human" id="atkBtn"><div class="fill" id="atkFill"></div><span class="lbl" id="atkLbl">Shove</span><small id="atkSub"></small></button>
-    </div>
-    <!-- zombie controls -->
-    <div id="zombieCtl" hidden>
-      <div class="row2">
-        <button class="bigBtn" id="biteBtn" disabled><div class="fill" id="biteFill"></div><span class="lbl" id="biteLbl">Bite</span><small id="biteSub">No humans in range</small></button>
-        <button class="bigBtn smash" id="smashBtn" disabled><span class="lbl">Smash</span><small id="smashSub">Nothing near</small></button>
+    <div id="telem">
+      <div class="surf" id="gps"><i class="d"></i><span id="gpsTxt">GPS —</span></div>
+      <div class="tbtns">
+        <button class="sq surf" id="lightBtn" aria-label="Toggle light" hidden></button>
+        <button class="sq surf" id="recenter" aria-label="Center on me"></button>
       </div>
     </div>
+    <div id="cluster">
+      <button class="wing l surf" id="wing1"></button>
+      <div class="mainWrap">
+        <div class="shell"></div>
+        <svg class="ring" viewBox="0 0 84 84"><circle class="rbg" cx="42" cy="42" r="38"/><circle class="rfg" id="ringFg" cx="42" cy="42" r="38" stroke-dasharray="238.8" stroke-dashoffset="0"/></svg>
+        <button id="mainBtn"><span class="ic" id="mainIc"></span><span id="mainLbl">SHOVE</span></button>
+      </div>
+      <button class="wing r surf" id="wing2"></button>
+    </div>
+    <div id="mainSub"></div>
   </div>
   <div id="copy">© Jenisan, Inc.</div>
+
+  <!-- INVENTORY -->
+  <section class="full" id="inv" hidden>
+    <div class="fhdr">
+      <button class="iconBtn surf" id="invHome" aria-label="Home Command"></button>
+      <div class="ftitle surf"><div style="min-width:0"><div class="tt" id="invTitle">GEAR LOADOUT</div><div class="st2" id="invSub"></div></div>
+        <div class="scb" id="invSc"><i></i><span id="invScV">0 SC</span></div></div>
+      <button class="iconBtn surf" id="invBack" aria-label="Back to radar"></button>
+    </div>
+    <div class="tabs surf" id="invTabs"><button data-t="gear" class="on">GEAR</button><button data-t="pack">PACK</button></div>
+    <div class="zbadge" id="invZ" hidden><b>MUTANT GEAR</b><span>HEADGEAR &amp; ARMOR ONLY</span></div>
+    <div class="fbody" id="invBody"></div>
+    <div class="ffoot" id="invFoot"></div>
+  </section>
+
+  <!-- HOME COMMAND -->
+  <section class="full" id="cmd" hidden>
+    <div class="fhdr">
+      <button class="iconBtn surf" id="cmdBack" aria-label="Back to radar"></button>
+      <div class="ftitle surf"><div style="min-width:0"><div class="tt">HOME COMMAND</div><div class="st2" id="cmdSub"></div></div>
+        <div class="scb"><i></i><span id="cmdScV">0 SC</span></div></div>
+      <button class="iconBtn surf" id="cmdSet" aria-label="Settings"></button>
+    </div>
+    <div class="tabs surf" id="cmdTabs"><button data-t="st" class="on">STANDINGS</button><button data-t="lb">LEADERBOARD</button><button data-t="bk" id="tabBk">BUNKER</button></div>
+    <div class="fbody" id="cmdBody"></div>
+  </section>
+
   <div id="downOv" hidden><div><h2>Put down</h2><p id="downTxt"></p></div></div>
   <div id="blindOv" hidden></div>
   <div id="alarm" hidden><div id="alarmText"></div></div>
@@ -104,6 +129,6 @@
   <div id="toast"></div>
 </section>
 
-<script src="/app.js?v=2"></script>
+<script src="/app.js?v=3"></script>
 </body>
 </html>
