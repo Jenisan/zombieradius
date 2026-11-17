@@ -99,7 +99,7 @@ end $$;
 create or replace function zr_hb3(p_id uuid, p_secret text, p_lat float8, p_lng float8, p_acc float8, p_tz int,
   p_since timestamptz default null, p_speed float8 default null) returns json
 language plpgsql security definer set search_path to public as $$
-declare me zr_players; v jsonb; el float8; rate float8 := 0; inb boolean; night boolean; acc float8; addn int; hz jsonb; lh int;
+declare me zr_players; v jsonb; el float8; rate float8 := 0; inb boolean; night boolean; v_acc float8; addn int; hz jsonb; lh int;
 begin
   v := zr_heartbeat(p_id, p_secret, p_lat, p_lng, p_acc, p_tz, p_since, p_speed)::jsonb;
   select * into me from zr_players where id = p_id;
@@ -110,10 +110,10 @@ begin
   elsif me.state = 'zombie' and night and coalesce(me.down_until, now()) <= now() then rate := 1; end if;
   el := least(60, greatest(0, extract(epoch from now() - coalesce(me.regen_at, now()))));
   if rate > 0 and me.hp < 100 then
-    acc := coalesce(me.hp_acc, 0) + rate * el / 60.0;
-    addn := floor(acc)::int;
+    v_acc := coalesce(me.hp_acc, 0) + rate * el / 60.0;
+    addn := floor(v_acc)::int;
     update zr_players set hp = least(100, hp + addn),
-      hp_acc = case when hp + addn >= 100 then 0 else acc - addn end, regen_at = now()
+      hp_acc = case when hp + addn >= 100 then 0 else v_acc - addn end, regen_at = now()
     where id = p_id returning * into me;
   else
     update zr_players set regen_at = now(), hp_acc = 0 where id = p_id;
