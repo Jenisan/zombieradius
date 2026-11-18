@@ -655,6 +655,7 @@ Object.assign(P, {
   w2:'<circle cx="12" cy="12" r="2"/><path d="M8 8a6 6 0 000 8M16 8a6 6 0 010 8M5 5a10 10 0 000 14M19 5a10 10 0 010 14"/>',
   w3:'<circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M8 8a6 6 0 000 8M16 8a6 6 0 010 8M5 5a10 10 0 000 14M19 5a10 10 0 010 14M2.5 2.5a13.5 13.5 0 000 19M21.5 2.5a13.5 13.5 0 010 19"/>',
   arrow:'<path d="M12 3l7 9h-4v9h-6v-9H5z" fill="currentColor"/>',
+  emp:'<path d="M13 2L5 13h6l-1 9 8-11h-6z"/>',
   sound:'<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 010 6M19 6a8 8 0 010 12"/>',
   mute:'<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>'
 });
@@ -834,7 +835,7 @@ async function heartbeat(){
   hbBusy = true;
   try {
     const fresh = Date.now() - fix.t < 15000;
-    const r = await rpc('zr_hb5', A({ p_lat: fresh ? fix.lat : null, p_lng: fresh ? fix.lng : null, p_acc: fresh ? fix.acc : null,
+    const r = await rpc('zr_hb6', A({ p_lat: fresh ? fix.lat : null, p_lng: fresh ? fix.lng : null, p_acc: fresh ? fix.acc : null,
       p_tz: new Date().getTimezoneOffset(), p_since: since, p_speed: fresh ? fix.speed : null }));
     const prevLock = data ? data.me.lock_left : 0;
     data = r; data._at = Date.now(); data._skew = Date.now() - Date.parse(r.now);
@@ -865,17 +866,22 @@ async function seedTiles(tiles){
       const q = `[out:json][timeout:20][bbox:${s},${w},${n},${e}];
 (node["shop"];node["amenity"~"^(cafe|restaurant|fast_food|fuel|pharmacy|library|townhall|community_centre|post_office|bank|cinema|marketplace|ice_cream)$"];)->.a;.a out 150;
 (way["leisure"~"^(park|playground|pitch|garden|dog_park|recreation_ground)$"];way["landuse"="recreation_ground"];)->.p;.p out center 80;
-way["highway"~"^(footway|pedestrian|path|cycleway|tertiary|secondary|unclassified|living_street)$"]["access"!="private"]->.r;.r out geom 150;`;
+way["highway"~"^(footway|pedestrian|path|cycleway|tertiary|secondary|unclassified|living_street)$"]["access"!="private"]->.r;.r out geom 150;
+way["highway"="service"]["service"="alley"]->.y;.y out geom 80;`;
       const r = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data=' + encodeURIComponent(q),
         headers:{ 'Content-Type':'application/x-www-form-urlencoded' } }).then(x => x.json());
-      const parks = [], shops = [], roads = [];
+      const parks = [], shops = [], roads = [], alleys = [];
       for (const el of r.elements || []) {
-        if (el.type === 'node' && el.tags) shops.push({ lat: el.lat, lng: el.lon, k:'shop' });
+        if (el.type === 'way' && el.tags && el.tags.service === 'alley' && el.geometry && el.geometry.length) { const g = el.geometry[Math.floor(el.geometry.length / 2)]; alleys.push({ lat: g.lat, lng: g.lon, k:'alley' }); }
+        else if (el.type === 'node' && el.tags) shops.push({ lat: el.lat, lng: el.lon, k:'shop' });
         else if (el.type === 'way' && el.tags && (el.tags.leisure || el.tags.landuse) && el.center) parks.push({ lat: el.center.lat, lng: el.center.lon, k:'park' });
         else if (el.type === 'way' && el.geometry && el.geometry.length) { const g = el.geometry[Math.floor(el.geometry.length / 2)]; roads.push({ lat: g.lat, lng: g.lon, k:'road' }); }
       }
       const shuf = a => a.sort(() => Math.random() - 0.5);
-      const pts = shuf(parks).concat(shuf(shops), shuf(roads)).filter(p => Math.floor(p.lat * 100) === la && Math.floor(p.lng * 100) === lo).slice(0, 300);
+      const inTile = p => Math.floor(p.lat * 100) === la && Math.floor(p.lng * 100) === lo;
+      const near = (a, b) => Math.hypot((a.lat - b.lat) * 111320, (a.lng - b.lng) * 111320 * Math.cos(a.lat * Math.PI / 180)) <= 120;
+      const bizAlleys = shuf(alleys).filter(a => inTile(a) && shops.some(s => near(a, s))).slice(0, 40);
+      const pts = shuf(parks).concat(shuf(shops), shuf(roads)).filter(inTile).slice(0, 300).concat(bizAlleys);
       if (pts.length) await rpc('zr_seed', A({ p_tile: tk, p_pts: pts }));
     }
   } catch(e){} finally { seeding = false; }
@@ -907,6 +913,7 @@ function render(){
   const v = V(), me = v.me, zombie = v.zombie, infected = v.infected;
   $('game').classList.toggle('z', zombie);
   $('game').classList.toggle('night', v.night);
+  $('game').classList.toggle('emp', !zombie && !!me.in_emp && !me.emp_nvg);
   document.querySelector('meta[name=theme-color]').setAttribute('content', zombie ? '#0c0608' : '#0a0f0d');
   updateHeader();
   const acc = fix ? Math.round(fix.acc) : null;
@@ -934,6 +941,18 @@ function render(){
       .on('click', () => toast(d.lands > 0 ? `Supply crate lands in ${fmt(d.lands - el0())}, ${d.dist} m away.` : `Supply crate, ${d.dist} m away. Military-grade gear.`)));
   }
   for (const zn of data.zones || []) {
+    if (zn.kind === 'shadow') {
+      layer.addLayer(L.circle([zn.lat, zn.lng], { radius: zn.r, color:'#475569', weight: 1.5, dashArray:'3 5', fillColor:'#020617', fillOpacity:.5, className:'shadowz' })
+        .on('click', () => toast(zombie ? 'Shadow Alley: humans can\'t see you on radar in here unless they shine a light or drop a flare.' : 'Shadow Alley: zombies inside are invisible to your radar. A headlamp or road flare exposes them.')));
+      continue;
+    }
+    if (zn.kind === 'emp') {
+      layer.addLayer(L.circle([zn.lat, zn.lng], { radius: zn.r, color:'#a78bfa', weight: 2, dashArray:'1 7', fillColor:'#7c3aed', fillOpacity:.13, className:'empz', interactive:false }));
+      layer.addLayer(L.marker([zn.lat, zn.lng], { icon: L.divIcon({ className:'', iconSize:[22,22], iconAnchor:[11,11],
+        html:`<div class="zonemk emp" style="color:#c4b5fd">${svg('emp')}<div class="lbl">EMP FOG ${fmt(zn.left - el0())}</div></div>` }) })
+        .on('click', () => toast('EMP fog: a drifting storm. Inside it, human radar shrinks by 75% and the zombie-close alarm is jammed. Night-vision goggles see through it.')));
+      continue;
+    }
     const rad = zn.kind === 'radiation';
     layer.addLayer(L.circle([zn.lat, zn.lng], { radius: zn.r, color: rad ? '#a3e635' : '#38bdf8', weight: 2, dashArray: rad ? '2 8' : null, fillColor: rad ? '#84cc16' : '#38bdf8', fillOpacity: rad ? .14 : .1, interactive:false }));
     layer.addLayer(L.marker([zn.lat, zn.lng], { icon: L.divIcon({ className:'', iconSize:[22,22], iconAnchor:[11,11],
@@ -965,6 +984,15 @@ function render(){
     layer.addLayer(L.circle([bk.lat, bk.lng], { radius: 40, color:'#10b981', weight:1.5, dashArray: bk.ready > 0 ? '3 6' : null, fillColor:'#10b981', fillOpacity:.06, interactive:false }));
     layer.addLayer(L.marker([bk.lat, bk.lng], { icon: L.divIcon({ className:'', iconSize:[26,26], iconAnchor:[13,13], html:`<div class="bkmk mine">${svg('bunker','x')}</div>` }) })
       .on('click', () => { setTab('gear'); invTab = 'bunker'; drawInv(); }));
+  }
+  if (zombie) for (const tr of data.trails || []) {
+    const pts = tr.pts || []; if (!pts.length) continue;
+    for (let i = 1; i < pts.length; i++) layer.addLayer(L.polyline([[pts[i-1][0], pts[i-1][1]], [pts[i][0], pts[i][1]]],
+      { color:'#e11d48', weight: 4, opacity: Math.max(.15, .8 - pts[i][2] / 150), dashArray:'2 8', lineCap:'round', interactive:false }));
+    pts.forEach(p => layer.addLayer(L.circle([p[0], p[1]], { radius: 3, color:'#fb7185', weight: 0, fillColor:'#e11d48', fillOpacity: Math.max(.15, .9 - p[2] / 130), interactive:false })));
+    const h = pts[pts.length - 1];
+    layer.addLayer(L.marker([h[0], h[1]], { icon: L.divIcon({ className:'', iconSize:[14,14], iconAnchor:[7,7], html:'<div class="scentmk"></div>' }) })
+      .on('click', () => toast(`Fresh blood scent, ${h[2]}s old. A wounded human passed here.`)));
   }
   for (const r of data.ripples || []) {
     const n = wavesOf(r.r), loud = r.kind !== 'move';
@@ -1250,6 +1278,8 @@ function banners(){
   $('banners').classList.toggle('up', !db);
   const set = (k, cond, text, cls) => { if (cond) bannerState[k] = { text, cls, persist:true }; else delete bannerState[k]; };
   set('close', !z && (data.others || []).some(o => o.close), 'Zombie in contact range!', 'red');
+  set('emp', !z && me.in_emp, me.emp_nvg ? 'EMP fog: your night vision sees through it.' : 'EMP fog: radar cut to 25% and the contact alarm is jammed.', 'blue');
+  set('shadow', z && me.in_shadow, 'In a Shadow Alley: invisible to human radar.', 'red');
   set('stun', z && left('stunned') > 0, `Stunned: no bite or shriek for ${fmt(left('stunned'))}.`, 'green');
   set('dis', !z && left('disguised') > 0, `Scent-blocked: zombies see you as one of them (${fmt(left('disguised'))}).`, 'blue');
   set('boost', !z && left('boost') > 0, `Flashlight on: radar doubled (${fmt(left('boost'))}).`, 'blue');
@@ -1767,7 +1797,8 @@ async function drawWorld(force){
   $('wSub').textContent = `${w.season ? w.season.name.toUpperCase() : ''} · ROUND ENDS IN ${dur(rLeft)}`;
   const cards = [];
   (w.crates || []).slice(0, 2).forEach(d => cards.push(`<button class="evc surf" data-ll="${d.lat},${d.lng}">${svg('crate').replace('class="ic"', 'class="ic" style="color:#f59e0b"')}<span class="tx"><b>Supply crate · ${d.dir} ${d.dist}m</b><span>${d.lands - el > 0 ? 'Inbound: military-grade loot' : 'Landed: search it before it\'s gone'}</span></span><span class="cd">${fmt(d.lands - el > 0 ? d.lands - el : d.left - el)}</span></button>`));
-  (w.zones || []).slice(0, 2).forEach(z => cards.push(`<button class="evc surf" data-ll="${z.lat},${z.lng}">${svg(z.kind === 'cdc' ? 'cdc' : 'rad').replace('class="ic"', `class="ic" style="color:${z.kind === 'cdc' ? '#38bdf8' : '#a3e635'}"`)}<span class="tx"><b>${z.kind === 'cdc' ? 'CDC Research Lab' : 'Radiation zone'} · ${z.dir} ${z.dist}m</b><span>${z.kind === 'cdc' ? 'Purges infection while inside' : `Spreading: ${z.r}m wide now`}</span></span><span class="cd">${fmt(z.left - el)}</span></button>`));
+  (w.zones || []).filter(z => z.kind === 'emp').slice(0, 1).forEach(z => cards.push(`<button class="evc surf" data-ll="${z.lat},${z.lng}">${svg('emp').replace('class="ic"', 'class="ic" style="color:#a78bfa"')}<span class="tx"><b>EMP fog · ${z.dir} ${z.dist}m</b><span>Drifting storm: radar cut by 75%</span></span><span class="cd">${fmt(z.left - el)}</span></button>`));
+  (w.zones || []).filter(z => z.kind !== 'emp').slice(0, 2).forEach(z => cards.push(`<button class="evc surf" data-ll="${z.lat},${z.lng}">${svg(z.kind === 'cdc' ? 'cdc' : 'rad').replace('class="ic"', `class="ic" style="color:${z.kind === 'cdc' ? '#38bdf8' : '#a3e635'}"`)}<span class="tx"><b>${z.kind === 'cdc' ? 'CDC Research Lab' : 'Radiation zone'} · ${z.dir} ${z.dist}m</b><span>${z.kind === 'cdc' ? 'Purges infection while inside' : `Spreading: ${z.r}m wide now`}</span></span><span class="cd">${fmt(z.left - el)}</span></button>`));
   if (w.bunker_lock > el) cards.push(`<div class="evc surf">${svg('lock')}<span class="tx"><b>Bunkers locked</b><span>First 6 hours of the round</span></span><span class="cd">${fmt(w.bunker_lock - el)}</span></div>`);
   if (!cards.length) cards.push(`<div class="evc surf">${svg('crate')}<span class="tx"><b>No events nearby yet</b><span>Supply crates and hazards appear near active players.</span></span></div>`);
   const KN = { explosion:'Explosion', shotgun:'Shotgun blast', rifle:'Rifle fire', carbine:'Automatic fire', scream:'Horde shriek', stungun:'Stun gun', bearspray:'Bear spray' };
@@ -2077,6 +2108,7 @@ function showHowTo(){
     <li><b style="color:#f43f5e">Zombies</b> hold Bite when their ring touches a human pip and Shriek to call the horde (45s cooldown). Shoves, spray and melee lock your bite briefly. Only Lazarus-X cures a zombie.</li>
     <li><b>Bunkers</b> (Gear › Bunker) store 50 items through a round, even if you turn. Zombies can smash them (5,000 HP).</li>
     <li><b>Rounds</b> last 7 days: points become XP, carried gear moves into your bunker and everyone starts human. 12 rounds make a season, then everything is wiped.</li>
+    <li><b>Map hazards:</b> zombies in a Shadow Alley are invisible to radar unless you shine a headlamp or drop a flare. EMP fog cuts radar by 75% (night vision sees through). Bitten humans leave a blood trail zombies can follow for 2 minutes.</li>
     <li>Use the <b>pause</b> button to cross a road or handle anything real. Your home zone always hides you.</li>
   </ol>`);
 }

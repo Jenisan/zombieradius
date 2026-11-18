@@ -709,3 +709,15 @@ input:focus,select:focus{outline:2px solid var(--rot-dim)}
 .xpcard .trk i{background:var(--hl)}
 .xpcard .obtn{width:auto;min-height:36px;padding:0 12px;font-size:10.5px}
 @media (max-height:700px){#game{--navh:52px} .sumb{padding:5px 8px} .evc{padding:6px 9px}}
+
+/* v5.1 hazards */
+.shadowz{animation:none}
+.empz{animation:empPulse 3s ease-in-out infinite}
+@keyframes empPulse{0%,100%{fill-opacity:.1}50%{fill-opacity:.2}}
+.zonemk.emp .ic{filter:drop-shadow(0 0 6px #8b5cf6)}
+.scentmk{width:14px;height:14px;border-radius:50%;background:#e11d48;box-shadow:0 0 0 4px rgba(225,29,72,.25),0 0 14px #e11d48;animation:scent 1.4s ease-in-out infinite}
+@keyframes scent{0%,100%{transform:scale(.8)}50%{transform:scale(1.1)}}
+#game.emp #map::after{content:"";position:absolute;inset:0;z-index:450;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(167,139,250,.06) 0 2px,transparent 2px 4px),radial-gradient(circle at 50% 50%,transparent 30%,rgba(76,29,149,.45) 100%);
+  animation:empStatic .25s steps(2) infinite}
+@keyframes empStatic{0%{opacity:.85}100%{opacity:1}}
