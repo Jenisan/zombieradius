@@ -17,7 +17,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="/style.css?v=4">
+<link rel="stylesheet" href="/style.css?v=5">
 </head>
 <body>
 
@@ -35,14 +35,16 @@
 <section class="screen" id="game" hidden>
   <div id="map"></div>
   <div id="vignette"></div>
+  <div id="edge" aria-hidden="true"></div>
   <header id="hdr">
-    <button class="iconBtn surf" id="homeBtn" aria-label="Home Command"></button>
+    <button class="iconBtn surf" id="lvlBtn" aria-label="Level and profile"><svg viewBox="0 0 48 48" class="lvring"><circle cx="24" cy="24" r="19" class="lvbg"/><circle cx="24" cy="24" r="19" class="lvfg" id="lvFg" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg><b id="lvNum">1</b></button>
     <div class="surf" id="pill">
-      <div id="pillTop"><span id="pillLbl">—</span><span class="regen" id="regenB" hidden>+5%/m</span><span id="pillState"></span></div>
+      <div id="pillTop"><span id="pillLbl">—</span><span class="regen" id="regenB" hidden>+1%/m</span><span id="pillState"></span></div>
       <div class="trk" id="armTrk"><i id="armBar" style="width:0"></i></div>
       <div class="trk hp"><i id="hpBar" style="width:100%"></i></div>
     </div>
-    <button class="iconBtn surf" id="packBtn" aria-label="Gear and backpack"></button>
+    <button class="iconBtn surf" id="hgBtn" aria-label="Toggle headgear light" hidden><svg viewBox="0 0 48 48" class="bring"><circle cx="24" cy="24" r="20" class="bbg"/><circle cx="24" cy="24" r="20" class="bfg" id="hgRing" stroke-dasharray="125.7" stroke-dashoffset="0"/></svg><span id="hgIc"></span></button>
+    <button class="iconBtn surf" id="pauseBtn" aria-label="Safety pause"></button>
   </header>
   <div class="surf" id="dataBan" hidden><div class="row"><span class="tag" id="dbTag">DATA</span><span class="txt" id="dbTxt"></span></div><div class="trk" id="dbTrk" hidden><i id="dbBar"></i></div></div>
   <div id="banners"></div>
@@ -50,11 +52,9 @@
   <div id="bottom">
     <div id="telem">
       <div class="surf" id="gps"><i class="d"></i><span id="gpsTxt">GPS —</span></div>
-      <div class="tbtns">
-        <button class="sq surf" id="lightBtn" aria-label="Toggle light" hidden></button>
-        <button class="sq surf" id="recenter" aria-label="Center on me"></button>
-      </div>
+      <div class="tbtns"><button class="sq surf" id="recenter" aria-label="Center on me"></button></div>
     </div>
+    <button id="prox" hidden></button>
     <div id="cluster">
       <button class="wing l surf" id="wing1"></button>
       <div class="mainWrap">
@@ -66,18 +66,25 @@
     </div>
     <div id="mainSub"></div>
   </div>
-  <div id="copy">© Jenisan, Inc.</div>
+  <nav id="nav" class="surf">
+    <button data-tab="radar" class="on" id="navRadar"></button>
+    <button data-tab="gear" id="navGear"></button>
+    <button data-tab="world" id="navWorld"></button>
+  </nav>
+  <div id="act" hidden><div class="actBox surf"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="abg"/><circle cx="60" cy="60" r="52" class="afg" id="actFg" stroke-dasharray="326.7" stroke-dashoffset="326.7"/></svg>
+    <div class="actT"><b id="actSec">3.0</b><span id="actLbl">Searching</span></div><button class="obtn ghost" id="actX">Cancel</button></div></div>
+  <div id="pauseOv" hidden><div class="pauseBox surf"><b>SAFETY PAUSE</b><div class="big" id="pauseT">5:00</div><p>You're hidden from everyone and can't be attacked or act. Take care of what's around you.</p><button class="obtn" id="pauseGo">Resume play</button></div></div>
+  <div id="pts" aria-live="polite"></div>
 
   <!-- INVENTORY -->
   <section class="full" id="inv" hidden>
     <div class="fhdr">
-      <button class="iconBtn surf" id="invHome" aria-label="Home Command"></button>
+      <button class="iconBtn surf" id="invMenu" aria-label="Menu: leaderboard, settings, profile"></button>
       <div class="ftitle surf"><div style="min-width:0"><div class="tt" id="invTitle">GEAR LOADOUT</div><div class="st2" id="invSub"></div></div>
         <div class="scb" id="invSc"><i></i><span id="invScV">0 SC</span></div></div>
-      <button class="iconBtn surf" id="invBack" aria-label="Back to radar"></button>
     </div>
-    <div class="tabs surf" id="invTabs"><button data-t="gear" class="on">GEAR</button><button data-t="pack">PACK</button></div>
-    <div class="zbadge" id="invZ" hidden><b>MUTANT GEAR</b><span>HEADGEAR &amp; ARMOR ONLY</span></div>
+    <div class="tabs surf" id="invTabs"><button data-t="gear" class="on">GEAR</button><button data-t="pack">PACK</button><button data-t="bunker" id="tabBunker">BUNKER</button></div>
+    <div class="zbadge" id="invZ" hidden><b>INHERITED ARMOR</b><span>READ-ONLY</span></div>
     <div class="fbody" id="invBody"></div>
     <div class="ffoot" id="invFoot"></div>
   </section>
@@ -86,12 +93,19 @@
   <section class="full" id="cmd" hidden>
     <div class="fhdr">
       <button class="iconBtn surf" id="cmdBack" aria-label="Back to radar"></button>
-      <div class="ftitle surf"><div style="min-width:0"><div class="tt">HOME COMMAND</div><div class="st2" id="cmdSub"></div></div>
+      <div class="ftitle surf"><div style="min-width:0"><div class="tt" id="cmdTitle">PROFILE</div><div class="st2" id="cmdSub"></div></div>
         <div class="scb"><i></i><span id="cmdScV">0 SC</span></div></div>
       <button class="iconBtn surf" id="cmdSet" aria-label="Settings"></button>
     </div>
-    <div class="tabs surf four" id="cmdTabs"><button data-t="st" class="on">STANDINGS</button><button data-t="lb">LEADERBOARD</button><button data-t="bk" id="tabBk">BUNKER</button><button data-t="set">SETTINGS</button></div>
+    <div class="tabs surf" id="cmdTabs"><button data-t="st" class="on">STANDINGS</button><button data-t="lb">LEADERBOARD</button><button data-t="set">SETTINGS</button></div>
     <div class="fbody" id="cmdBody"></div>
+  </section>
+
+  <!-- WORLD & INTEL -->
+  <section class="full" id="world" hidden>
+    <div class="fhdr"><div class="ftitle surf" style="flex:1"><div style="min-width:0"><div class="tt">WORLD &amp; INTEL</div><div class="st2" id="wSub">—</div></div>
+      <div class="scb"><i style="background:#38bdf8"></i><span id="wRound">ROUND —</span></div></div></div>
+    <div class="fbody" id="wBody"></div>
   </section>
 
   <div id="downOv" hidden><div><h2>Put down</h2><p id="downTxt"></p></div></div>
@@ -107,6 +121,6 @@
   <div class="lgMeta" id="lgMeta"></div><div class="lgBody" id="lgBody"></div><button class="obtn" id="lgOk">Close</button></div>
 </div>
 
-<script src="/app.js?v=4"></script>
+<script src="/app.js?v=5"></script>
 </body>
 </html>
