@@ -1,5 +1,6 @@
 {
   "rewrites": [
-    { "source": "/", "has": [{ "type": "host", "value": "zombieradius.com" }], "destination": "/landing/index.html" }
+    { "source": "/", "has": [{ "type": "host", "value": "zombieradius.com" }], "destination": "/landing/index.html" },
+    { "source": "/", "destination": "/game.html" }
   ]
 }
