@@ -17,12 +17,24 @@
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="/style.css?v=6">
+<link rel="stylesheet" href="/style.css?v=7">
 </head>
 <body>
 
 <!-- SPLASH -->
 <section class="screen" id="splash" aria-label="Zombie Radius: The outbreak is closer than you think"><div class="load">Loading</div></section>
+
+<!-- DESKTOP GATE: the game needs a phone's GPS -->
+<section class="screen" id="desk" hidden>
+  <div class="dcard">
+    <img src="/icon-192.png" alt="" class="dlogo">
+    <h1>Zombie Radius is played on your phone</h1>
+    <p>The outbreak happens in the real world. The game uses your phone's GPS to put you on the map, so it can't run on a desktop or laptop.</p>
+    <div id="deskQr" aria-label="QR code to open the game on your phone"></div>
+    <p class="dsmall">Scan with your phone's camera, or open <b id="deskUrl"></b> in your phone's browser.</p>
+    <div class="ocopy">© Jenisan, Inc.</div>
+  </div>
+</section>
 
 <!-- ONBOARDING / AUTH -->
 <section class="screen" id="onb" hidden>
@@ -121,6 +133,6 @@
   <div class="lgMeta" id="lgMeta"></div><div class="lgBody" id="lgBody"></div><button class="obtn" id="lgOk">Close</button></div>
 </div>
 
-<script src="/app.js?v=6"></script>
+<script src="/app.js?v=7"></script>
 </body>
 </html>

@@ -2123,6 +2123,24 @@ function hideSplash(){
 setTimeout(hideSplash, 7000);
 
 /* ---------- boot ---------- */
+// Phones and tablets only: the game is played with real GPS movement.
+function isMobileDevice(){
+  const ua = navigator.userAgent || '';
+  if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
+  if (/Android|iPhone|iPod|iPad|Mobile|Silk|Kindle|BlackBerry|Opera Mini|IEMobile/i.test(ua)) return true;
+  if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return true; // iPadOS reports as a Mac
+  return false;
+}
+function showDesk(){
+  $('splash').hidden = true; $('desk').hidden = false;
+  const url = location.origin + '/';
+  $('deskUrl').textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com/qrcode-generator@1.4.4/qrcode.js';
+  s.onload = () => { try { const q = qrcode(0, 'M'); q.addData(url); q.make(); $('deskQr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 3, scalable: true }); } catch(e){} };
+  document.head.appendChild(s);
+}
+if (!isMobileDevice()) { showDesk(); return; }
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 loadCatalog().finally(async () => {
   if (!(auth && auth.id)) return showOnb('boot');
